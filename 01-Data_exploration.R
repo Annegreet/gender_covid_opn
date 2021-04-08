@@ -45,7 +45,8 @@ opn_var <- opn_var %>%
 #write.xlsx(unique_q_col, "Unique_questions.xlsx")
 
 
-# Selecting variable
+# Selecting variables -----
+
 # survey characteristics
 surveychar <- 
   c("Month", "Year",
@@ -68,9 +69,15 @@ responchar <- c(# Respondent
                 "CL_EthnGrp5", #Ethnicity grouped (5 categories)
                 "NatID1","NatID2","NatID3","NatID4","NatID5","NatID6", #National identity
                 "CitCheck_b_1","CitCheck_b1", #Which of the following passports are you entitled to?
+
                 # Education
                 "HighEd4", #Highest education level (4 groupings)
                 "HighEd1", #Highest qualification level
+     
+                #Education
+                "HighEd4", #Highest education level (4 groupings)
+                "HighEd1", #Highest qualification level
+
                 # Parent
                 "ParTod", #Is a parent of child aged 0-4
                 "Parent", #Parent
@@ -110,6 +117,7 @@ workvar <- c(# Employement
              "COV_WrkReaB01","COV_WrkReaC01","COV_WrkRea01",  #In the past seven days, why have you worked from home?
              "COV_WrkReaB_emplwrkhom","COV_WrkReaC_emplwrkhom", "COV_WrkRea_emplwrkhom",  #My employer asked me to work from home
              "COV_WrkReaB_wrkclose","COV_WrkReaC_wrkclose", "COV_WrkRea_wrkclose",  #My workplace is closed
+
              # filtered
              "COV_WhyWrkSp", #Please specify the reasons you intend to work from home.
              "COV_WrkReaSp", #Please specify the reasons you have worked from home in the past seven days.
@@ -125,11 +133,19 @@ workvar <- c(# Employement
              # filtered
              "COV_D13MSp","COV_E13MSp","COV_WrkSp",  #Please specify the other ways in which Coronavirus (COVID-19) has affected your work
              "COV_SkillSp",  #Please specify the other ways your work has changed since the coronavirus (COVID-19) outbreak.
-             
+
+             "COV_D13MSp","COV_E13MSp","COV_WrkSp",  #Please specify the other ways in which Coronavirus (COVID-19) has affected your work
+             "COV_SkillSp",  #Please specify the other ways your work has changed since the coronavirus (COVID-19) outbreak.
+             "COV_E13aM01", "COV_Healsaf01", "COV_HealSafA01", #What concerns do you have about your health and safety at work due to coronavirus (COVID-19)?
+
              # other
              "COV_WkSitJan1",  #During the month of January, which of the following situations do you expect to apply to your wok?
              "COV_WkSitOct1",  #During the month of October, which of the following situations do you expect to apply to your wok?
              "COV_WkSitOctNov1",  #During the months of October and November, which of the following situations do you expect t apply to your work?
+
+             "COV_WkSitDecSp",  #Please specify the other situations that you expect to apply to your work in December.
+             "COV_WkSitOctNovSp",  #Please specify the other situations that you expect to apply to your work in October an November.
+             "COV_WkSitOctSp",  #Please specify the other situations that you expect to apply to your work in October.
              "COV_WrkC01","COV_C12M01","COV_D13M01", "COV_E13M01","COV_Wrk01","COV_WrkA01","COV_WrkB01", #In the past seven days, how has your work been affected?
              "COV_Skill1",  #In which, if any, of the following ways has your work changed since the coronavirus (COVID-19 pandemic?
              "COV_WkSitInfo1",  #Is this expectation based on information from your employer or from other sources?
