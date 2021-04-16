@@ -1,56 +1,41 @@
-# load packages
-library(tidyverse)
-library(readxl)
-library(xlsx)
+###############################################################################
+####            Opinions and lifestyle survey                             #####
+####                  Data exploration                                    #####    
+###############################################################################
 
-# prepare data
+# To do:
+# - harmonize variable levels
+# - check the data issues files
+
+# 1) Set-up ----
+# Required packages
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(readxl)) install.packages("readxl")
+if(!require(magrittr)) install.packages("magrittr")
+
+# load packages
+library(tidyverse) # Data wrangling
+library(readxl) # read in xlsx files
+library(magrittr) # set colnames function
+
+# Lookup table for variable names and questions
+# names of excel sheets
 sheets <- excel_sheets("Input/8635_opn_2020_covid_all_waves_variable_catalogue.xlsx")
 
+# load and bind excel sheets to 1 df 
 bind_sheets <- function(sheetname) {
 read_xlsx("Input/8635_opn_2020_covid_all_waves_variable_catalogue.xlsx",
           sheet = sheetname) %>% 
-    rename(var.name = 1, var.label = 2) %>% 
-    mutate(sheet = sheetname)
+    rename(var.name = 1, var.label = 2) %>% # give the same name 
+    mutate(sheet = sheetname) # add sheetname column
 }
 
-opn_var_raw <- purrr::map_dfr(sheets, ~bind_sheets(.))
+opn_lookup <- purrr::map_dfr(sheets, ~bind_sheets(.))
 
-# create wave, month and year variable
-opn_var <- opn_var_raw %>% 
-  mutate(sheetID = str_extract(sheet, pattern = "^(.=?_)|^(..=?_)") %>% str_remove("_"),
-         year = str_extract(sheet, pattern = "202."), # extract year
-         month = str_extract(sheet, pattern = "(?<=2020)..")) %>% # extract month
-  group_by(month) %>% 
-  mutate(rep = as.numeric(as.factor(sheetID))) %>% # create variable for repetition of survey within month
-  ungroup() %>% 
-  mutate(wave = as.numeric(as.factor(sheetID))) # numerica ID for wave
-
-# subset derived variables
-opn_dv <- opn_var %>% 
-  filter(str_detect(var.label, "DV"))  
-opn_var <- opn_var %>%
-  filter(!str_detect(var.label, "DV"))
-
-# unique_q <- opn_var %>% 
-#   mutate(id = 1:nrow(.)) %>% 
-#   spread(wave, var.name) %>% 
-#   select(var.label, 8:ncol(.)) %>% 
-#   group_by(var.label) %>% 
-#   summarise_all(~first(na.omit(.)))
-# 
-# names(unique_q) <- c("Question", sheets)
-# 
-# unique_q_col <- unique_q %>% 
-#   unite("Var.name", A_OPN202003:AM_202012, na.rm = TRUE, sep =", ")
-#write.xlsx(unique_q_col, "Unique_questions.xlsx")
-
-
-# Selecting variables -----
-
-# survey characteristics
+# 2) Selecting variables -----
+# Survey characteristics
 surveychar <- 
-  c("Month", "Year",
-    "WkDayInd","WkDyMkr") # Interview day, Whether survey completed on weekday or weekend
+  c("Month", "Year")
 
 # General COVID situation
 covidgen <- c(
@@ -58,68 +43,48 @@ covidgen <- c(
   "COV_WrkReaB_LocalLD", #I live in a local lockdown area and have been advised to work from home"
   "COV_WrkReaC_LockDown") #I live in a lockdown area and have been advised to work from home"
 
-# characteristics of respondent
+# Characteristics of respondent
+# these variables should be in all waves
 responchar <- c(# Respondent
                 "RAge", #Respondent's age
                 "RSex", #Respondent's sex
-                "Defacto", #Defacto marital status (9 levels)
-                "Defact1", #Defacto marital status (7 levels)
                 "Disability", #Disability status
-                "CL_EthnGrp2", #Ethnicity grouped (2 categories) (white/other)
                 "CL_EthnGrp5", #Ethnicity grouped (5 categories)
-                "NatID1","NatID2","NatID3","NatID4","NatID5","NatID6", #National identity
-                "CitCheck_b_1","CitCheck_b1", #Which of the following passports are you entitled to?
-
+                
                 # Education
                 "HighEd4", #Highest education level (4 groupings)
-                "HighEd1", #Highest qualification level
-     
-                #Education
-                "HighEd4", #Highest education level (4 groupings)
-                "HighEd1", #Highest qualification level
 
                 # Parent
                 "ParTod", #Is a parent of child aged 0-4
                 "Parent", #Parent
-                "COV_Change_Family", #Starting a family or expanding my family
-                # Marital status
-                "RespMar", #Legal marital status OPN person
-                "LivWth12", #Whether living as a couple with another household member
+
                 # Income
                 "TelBand", #We put answers into income bands. Which band represents your total personal
+                
                 # Place
                 "CL_Country", #Country
-                "GORA", #Government Office Region
-                "sector_numeric") #Postcode sector (anonymised) - numeric
+                "GORA") #Government Office Region
 
 # questions related to work              
 workvar <- c(# Employement
              "InEcAc",  #Employment status
-             "EverWk",  #Have you ever had paid work, apart from casual or holiday work (or the job you are waiting to begin)?
+             "CasWrk", # Whether did any casual work for payment, even for an hour, in the reference week
              "FtPtWk",  #And is that job full-time or part-time?
-             "CasWrk",  #Did you do any casual work for payment, even for an hour, in the week Monday ^Ref
              "Stat",  #In your main job, are you an employee or self-employed?
-             "OccD", #What do you mainly do in your job?
              "OccT", #What is your main job title? [LookUp]
              "Sectro03", #Which of the following best describes the firm or organisation?
              
              # Key worker 
-             "COV_KeyWrk",  #Due to the coronavirus (COVID-19) outbreak, have you been given ?key worker? status?
-             "COV_D9","COV_E9",  #Due to the Coronavirus (COVID-19) outbreak, have you been given ?key worker? status?
-             "COV_KeyWrk",  #Due to the Coronavirus (COVID-19) outbreak, have you been given ?key worker? status?
-
+             "COV_KeyWrk","COV_D9","COV_E9",  #Due to the Coronavirus (COVID-19) outbreak, have you been given ?key worker? status?
+             
              # Work from home
              "COV_WrkReaB_govadvice","COV_WrkReaC_govadvice","COV_WrkRea_govadvice",  #I am following government advice to work from home
              "COV_WrkReaB_normhome","COV_WrkReaC_normhome", "COV_WrkRea_normhome",  #I normally work from home some or all of the time
-             "COV_WrkReaB_prefwrkhom", "COV_WrkReaC_prefwrkhom","COV_WrkRea_prefwrkhom",  #I prefer to work from home
-             "COV_WrkPlan","COV_WhyWrk01","COV_WhyWrkB01",  #In the next seven days, why do you intend to work from home?
-             "COV_WrkHom", "COV_34","COV_B69","COV_C83","COV_D77","COV_E77","COV_WrkHom","COV_WrkHom",  #In the past seven days, have you worked from home because of the coronavirus (COVID-19) pandemic?
+             "COV_WrkHom","COV_34","COV_B69","COV_C83","COV_D77","COV_E77", #In the past seven days, have you worked from home because of the coronavirus (COVID-19) pandemic?
              "COV_WrkReaB01","COV_WrkReaC01","COV_WrkRea01",  #In the past seven days, why have you worked from home?
              "COV_WrkReaB_emplwrkhom","COV_WrkReaC_emplwrkhom", "COV_WrkRea_emplwrkhom",  #My employer asked me to work from home
              "COV_WrkReaB_wrkclose","COV_WrkReaC_wrkclose", "COV_WrkRea_wrkclose",  #My workplace is closed
-
              # filtered
-             "COV_WhyWrkSp", #Please specify the reasons you intend to work from home.
              "COV_WrkReaSp", #Please specify the reasons you have worked from home in the past seven days.
              
              # COVID safety at work
@@ -133,166 +98,24 @@ workvar <- c(# Employement
              # filtered
              "COV_D13MSp","COV_E13MSp","COV_WrkSp",  #Please specify the other ways in which Coronavirus (COVID-19) has affected your work
              "COV_SkillSp",  #Please specify the other ways your work has changed since the coronavirus (COVID-19) outbreak.
-
-             "COV_D13MSp","COV_E13MSp","COV_WrkSp",  #Please specify the other ways in which Coronavirus (COVID-19) has affected your work
-             "COV_SkillSp",  #Please specify the other ways your work has changed since the coronavirus (COVID-19) outbreak.
-             "COV_E13aM01", "COV_Healsaf01", "COV_HealSafA01", #What concerns do you have about your health and safety at work due to coronavirus (COVID-19)?
-
-             # other
-             "COV_WkSitJan1",  #During the month of January, which of the following situations do you expect to apply to your wok?
-             "COV_WkSitOct1",  #During the month of October, which of the following situations do you expect to apply to your wok?
-             "COV_WkSitOctNov1",  #During the months of October and November, which of the following situations do you expect t apply to your work?
-
-             "COV_WkSitDecSp",  #Please specify the other situations that you expect to apply to your work in December.
-             "COV_WkSitOctNovSp",  #Please specify the other situations that you expect to apply to your work in October an November.
-             "COV_WkSitOctSp",  #Please specify the other situations that you expect to apply to your work in October.
+            
+             # How work has changed
              "COV_WrkC01","COV_C12M01","COV_D13M01", "COV_E13M01","COV_Wrk01","COV_WrkA01","COV_WrkB01", #In the past seven days, how has your work been affected?
              "COV_Skill1",  #In which, if any, of the following ways has your work changed since the coronavirus (COVID-19 pandemic?
              "COV_WkSitInfo1",  #Is this expectation based on information from your employer or from other sources?
-             "Cov_RetWk", #Thinking of the main job you were doing before lockdown, how likely or unlikely is it that you wil return to that job?
-             "COV_Skill1", #Which, if any, of the following ways has your work changed since the coronavirus outbreak?
-             # filtered 
-             "COV_WkSitDecSp",  #Please specify the other situations that you expect to apply to your work in December.
-             "COV_WkSitOctNovSp",  #Please specify the other situations that you expect to apply to your work in October an November.
-             "COV_WkSitOctSp",  #Please specify the other situations that you expect to apply to your work in October.
-             "COV_WrkB_DV_wrkocar", "COV_Wrk_DV_wrkocar") #Whether specified 'I have to work around other caring responsibilties' at COV_WrkC/B
-             
-# more filtered
-c("COV_Keep_WrkHme",  #I spend more time working from home' at COV_Keep"
-"COV_Life_DV2",  #Whether 'work' is being affected"
-"COV_Life_DV_work",  #Whether 'work' is being affected"
-"COV_Life_DV15",  #Whether 'work travel plans' are being affected"
-"COV_Life_wrktrav",  #Whether 'work travel plans' are being affected"
-"CasWrk",  #Whether did any casual work for payment, even for an hour, in the reference week"
-"OwnBus",  #Whether did any unpaid or voluntary work in the reference week"
-"WrkRef",  #Whether did any work in paid job in reference week"
-"Wrking",  #Whether had paid job in reference week"
-"COV_HealSaf_DV_wrkhom",  #Whether specified 'asked to go into work when I could work from home instead' at COV_HealSaf"
-"COV_HealSaf_DV_wrkhom",  #Whether specified 'asked to go into work when I could work from home instead' at COV_HealSafA"
-"COV_WrkB_DV_workhm",  #Whether specified 'asked to work from home' at COV_WrkB"
-"COV_Wrk_DV_workhm",  #Whether specified 'asked to work from home' at COV_WrkB"
-"COV_RulesB_AvoidTrav",  #Whether specified 'Avoid travelling to other parts of the UK, including for overnight stays except where necessary, such as for work or education' at COV_RulesB"
-"COV_HealSaf_DV_coldiag",  #Whether specified 'colleagues have been diagnosed with coronavirus (COVID-19)' at COV_HealSaf"
-"COV_HealSaf_DV_colsym",  #Whether specified 'colleagues have shown symptoms of coronavirus (COVID-19) whilst remaining at work' at COV_HealSaf"
-"COV_WrkB_DV_dechrs",  #Whether specified 'decrease in hours worked' at COV_WrkB"
-"COV_Wrk_DV_dechrs",  #Whether specified 'decrease in hours worked' at COV_WrkB"
-"COV_HealSaf_DV3",  #Whether specified 'employer does not provide staff with antibacterial products to use whilst working' at COV_HealSaf"
-"COV_HealSaf_DV_noantbac",  #Whether specified 'employer does not provide staff with antibacterial products to use whilst working' at COV_HealSaf"
-"COV_BritTod_Emp",  #Whether specified 'Employment' at COV_BritTod"
-"COV_WellD_DV_FurlghDiff",  #Whether specified 'Finding being on furlough difficult' at COV_WellD"
-"COV_WellC_DV_wrkhom",  #Whether specified 'finding working from home difficult' at COV_WellC"
-"COV_WrkB_DV_homdif",  #Whether specified 'finding working from home difficult' at COV_WrkB"
-"COV_Wrk_DV_homdif",  #Whether specified 'finding working from home difficult' at COV_WrkB"
-"COV_Wrk_DV_homdif",  #Whether specified 'finding working from home difficult' at COV_WrkC"
-"COV_HealSaf_DV2",  #Whether specified 'following hygiene advice is difficult due to my role' at COV_HealSaf"
-"COV_HealSaf_DV_hygdif",  #Whether specified 'following hygiene advice is difficult due to my role' at COV_HealSaf"
-"COV_HealSaf_DV_hygdif",  #Whether specified 'following hygiene advice is difficult due to my role' at COV_HealSafA"
-"COV_HealSaf_DV1",  #Whether specified 'following social distancing advice is difficult due to my role' at COV_HealSaf"
-"COV_HealSaf_DV_socdis",  #Whether specified 'following social distancing advice is difficult due to my role' at COV_HealSaf"
-"COV_HealSaf_DV_socdis",  #Whether specified 'following social distancing advice is difficult due to my role' at COV_HealSafA"
-"COV_WhyWrk_GovAd",  #Whether specified 'I am following government advice to work from home' at COV_WhyWrk"
-"COV_WhyWrkB_GovAd",  #Whether specified 'I am following government advice to work from home' at COV_WhyWrkB"
-"COV_WkSitDec_Rednt",  #Whether specified 'I expect to be made redundant' at COV_WkSitDec"
-"COV_WkSitJan_Rednt",  #Whether specified 'I expect to be made redundant' at COV_WkSitJan"
-"COV_WkSitOct_Rednt",  #Whether specified 'I expect to be made redundant' at COV_WkSitOct"
-"COV_WkSitOctNov_Rednt",  #Whether specified 'I expect to be made redundant' at COV_WkSitOctNov"
-"COV_WkSitDec_IncHrs",  #Whether specified 'I expect to increase my working hours' at COV_WkSitDec"
-"COV_WkSitJan_IncHrs",  #Whether specified 'I expect to increase my working hours' at COV_WkSitJan"
-"COV_WkSitOct_IncHrs",  #Whether specified 'I expect to increase my working hours' at COV_WkSitOct"
-"COV_WkSitOctNov_IncHrs",  #Whether specified 'I expect to increase my working hours' at COV_WkSitOctNov"
-"COV_WkSitDec_RedHrs",  #Whether specified 'I expect to reduce my working hours' at COV_WkSitDec"
-"COV_WkSitJan_RedHrs",  #Whether specified 'I expect to reduce my working hours' at COV_WkSitJan"
-"COV_WkSitOct_RedHrs",  #Whether specified 'I expect to reduce my working hours' at COV_WkSitOct"
-"COV_WkSitOctNov_RedHrs",  #Whether specified 'I expect to reduce my working hours' at COV_WkSitOctNov"
-"COV_WkSitDec_Furl",  #Whether specified 'I expect to remain on furlough' at COV_WkSitDec"
-"COV_WkSitJan_Furl",  #Whether specified 'I expect to remain on furlough' at COV_WkSitJan"
-"COV_WkSitOct_Furl",  #Whether specified 'I expect to remain on furlough' at COV_WkSitOct"
-"COV_WkSitOctNov_Furl",  #Whether specified 'I expect to remain on furlough' at COV_WkSitOctNov"
-"COV_WkSitDec_RetFT",  #Whether specified 'I expect to return to work full time' at COV_WkSitDec"
-"COV_WkSitJan_RetFT",  #Whether specified 'I expect to return to work full time' at COV_WkSitJan"
-"COV_WkSitOct_RetFT",  #Whether specified 'I expect to return to work full time' at COV_WkSitOct"
-"COV_WkSitOctNov_RetFT",  #Whether specified 'I expect to return to work full time' at COV_WkSitOctNov"
-"COV_WkSitDec_RetPT",  #Whether specified 'I expect to return to work part time' at COV_WkSitDec"
-"COV_WkSitJan_RetPT",  #Whether specified 'I expect to return to work part time' at COV_WkSitJan"
-"COV_WkSitOct_RetPT",  #Whether specified 'I expect to return to work part time' at COV_WkSitOct"
-"COV_WkSitOctNov_RetPT",  #Whether specified 'I expect to return to work part time' at COV_WkSitOctNov"
-"COV_Wrk_DV_Retfurlgh",  #Whether specified 'I have been asked to return from furlough' at COV_WrkC"
-"COV_WrkB_DV_furlough",  #Whether specified 'I have been furloughed' at COV_WrkB"
-"COV_Wrk_DV_furlough",  #Whether specified 'I have been furloughed' at COV_WrkB"
-"COV_Wrk_DV_furlough",  #Whether specified 'I have been furloughed' at COV_WrkC"
-"COV_Skill_WkNewWays",  #Whether specified 'I have had to work in new ways' at COV_Skill"
-"COV_WhyWrk_WkHme",  #Whether specified 'I normally work from home some or all of the time' at COV_WhyWrk"
-"COV_WhyWrkB_WkHme",  #Whether specified 'I normally work from home some or all of the time' at COV_WhyWrkB"
-"COV_WhyWrk_Prefer",  #Whether specified 'I prefer to work from home' at COV_WhyWrk"
-"COV_WhyWrkB_Prefer",  #Whether specified 'I prefer to work from home' at COV_WhyWrkB"
-"COV_LifeBet_DV_WrkHme",  #Whether specified 'I spend more time working from home' at COV_LifeBet"
-"COV_VaccineNot_Wait",  #Whether specified 'I would wait to see how well the vaccine works' at COV_VaccineNot"
-"COV_WrkB_DV_inchrs",  #Whether specified 'increase in hours worked' at COV_WrkB"
-"COV_Wrk_DV_inchrs",  #Whether specified 'increase in hours worked' at COV_WrkB"
-"COV_Wrk_DV_inchrs",  #Whether specified 'increase in hours worked' at COV_WrkC"
-"COV_ConInf_DV_plnsch",  #Whether specified 'Information to help me plan work around school arrangements' at COV_ConInf"
-"COV_LeftH_DV1",  #Whether specified 'key worker, travelling to and from work' at COV_LeftH"
-"COV_LeftH_DV_keywktrav",  #Whether specified 'key worker, travelling to and from work' at COV_LeftH"
-"COV_HealSaf_DV5",  #Whether specified 'limited or no protective clothing available' at COV_HealSaf"
-"COV_HealSaf_DV_nocloth",  #Whether specified 'limited or no protective clothing available' at COV_HealSaf"
-"COV_HealSaf_DV_noequip",  #Whether specified 'limited or no protective equipment available' at COV_HealSaf"
-"COV_WhyWrk_Empr",  #Whether specified 'My employer asked me to work from home' at COV_WhyWrk"
-"COV_WhyWrkB_Empr",  #Whether specified 'My employer asked me to work from home' at COV_WhyWrkB"
-"COV_Skill_NoChange",  #Whether specified 'My work has not changed' at COV_Skill"
-"COV_Life_DV_work",  #Whether specified 'My work is being affected' at COV_LifeC01 to COV_LifeC18"
-"COV_WhyWrk_WkClsd",  #Whether specified 'My workplace is closed' at COV_WhyWrk"
-"COV_WhyWrkB_WkClsd",  #Whether specified 'My workplace is closed' at COV_WhyWrkB"
-"COV_LeftH_DV2",  #Whether specified 'non-key worker, travelling to and from work' at COV_LeftH"
-"COV_LeftH_DV_non_keywktrav",  #Whether specified 'non-key worker, travelling to and from work' at COV_LeftH"
-"COV_HealSaf_DV_sdtrav",  #Whether specified 'social distancing is difficult when travelling to work' at COV_HealSafA"
-"COV_WellC_DV_strwrk",  #Whether specified 'strain on my work relationships' at COV_WellC"
-"COV_WellD_DV_strwrk",  #Whether specified 'strain on my work relationships' at COV_WellD"
-"COV_LeftH_DV14",  #Whether specified 'travel outside of UK for work' at COV_LeftH"
-"COV_LeftH_DV_wrkabr",  #Whether specified 'travel outside of UK for work' at COV_LeftH"
-"COV_LeftHB_DV_wrkabr",  #Whether specified 'travel outside of UK for work' at COV_LeftHB"
-"COV_LeftHC_DV_wrkabr",  #Whether specified 'travel outside of UK for work' at COV_LeftHC"
-"COV_LeftHD_DV_wrkabr",  #Whether specified 'travel outside of UK for work' at COV_LeftHD"
-"COV_LeftHB_DV_wktrav",  #Whether specified 'travelling to and from work' at COV_LeftHB"
-"COV_LeftHC_DV_wktrav",  #Whether specified 'travelling to and from work' at COV_LeftHC"
-"COV_LeftHD_DV_wktrav",  #Whether specified 'travelling to and from work' at COV_LeftHD"
-"COV_LeftHG_DV_wktrav",  #Whether specified 'travelling to and from work' at COV_LeftHG"
-"COV_WrkB_DV_uwrkccar",  #Whether specified 'unable to work at all due to childcare responsibilties' at COV_WrkB"
-"COV_Wrk_DV_uwrkccar",  #Whether specified 'unable to work at all due to childcare responsibilties' at COV_WrkB"
-"COV_WrkB_DV_uwrkhmsch",  #Whether specified 'unable to work at all due to home schooling responsibilities' at COV_WrkB"
-"COV_Wrk_DV_uwrkhmsch",  #Whether specified 'unable to work at all due to home schooling responsibilities' at COV_WrkB"
-"COV_WrkB_DV_unptran",  #Whether specified 'unable to work due to lack of public transport' at COV_WrkB"
-"COV_Wrk_DV_unptran",  #Whether specified 'unable to work due to lack of public transport' at COV_WrkC"
-"COV_WrkB_DV_seliso",  #Whether specified 'unable to work due to self-isolation' at COV_WrkB"
-"COV_Wrk_DV_seliso",  #Whether specified 'unable to work due to self-isolation' at COV_WrkB"
-"COV_Wrk_DV_SelisoShield",  #Whether specified 'unable to work due to self-isolation or shielding' at COV_WrkB"
-"COV_FacSitu_DV_work",  #Whether specified 'while at work' at COV_FacSitu"
-"COV_WrkB_DV_wrkocar",  #Whether specified 'I have to work around other caring responsibilties' at COV_WrkB"
-"COV_Wrk_DV_wrkocar",  #Whether specified 'I have to work around other caring responsibilties' at COV_WrkC"
-"COV_WkChild_ProbNotStop",  #Whether specified 'I have had problems with childcare providers but it has not stopped me returning to work' at COV_WkChild"
-"COV_WrkB_DV_wrkccar",  #Whether specified 'I have to work around childcare' at COV_WrkB"
-"COV_Wrk_DV_wrkccar",  #Whether specified 'I have to work around childcare' at COV_WrkC"
-"COV_WrkB_DV_wrkhmsch",  #Whether specified 'I have to work around home schooling responsibilities' at COV_WrkB"
-"COV_WellD_DV_JbLoss",  #Whether specified 'Feeling worried about possible job loss' at COV_WellD"
-"COV_WellD_DV_WorRetWrk",  #Whether specified 'Feeling worried about returning to work' at COV_WellD"
-"COV_WellD_DV_WorTravWrk")  #Whether specified 'Feeling worried about travel to work' at COV_WellD"
-
+             "Cov_RetWk") #Thinking of the main job you were doing before lockdown, how likely or unlikely is it that you wil return to that job?
+       
 
 # questions related to childcare
 childvar <- c("COV_E17M1", "COV_NotSen1", #For what reasons did the children within your household not attend nursery or school?
-              "COV_WrkReaB_nochildcare", "COV_WrkReaC_nochildcare", "COV_WrkRea_nochildcare", #I don't have childcare available
-              "COV_WkChild1", #In the past seven days, have you had problems with childcare providers that have stopped you from returning to work or being able to work the number of hours that you want to?
-              "COV_WkChildSp")  #Please specify the other problems with childcare providers that have stopped you from returning to work or being able to work the number of hours that you want to.
-
+              "COV_WrkReaB_nochildcare", "COV_WrkReaC_nochildcare", "COV_WrkRea_nochildcare") #I don't have childcare available
+              
 # Questions related to home-schooling
 homevar <- c("COV_D22", "COV_E22", "COV_JobHom", #Homeschooling is negatively affecting my job
              "COV_D23", "COV_E23", "COV_WelHom", #Homeschooling is negatively affecting my well-being
              "COV_WelCh", "COV_D21", "COV_E21", "COV_RelHom", #Homeschooling is putting a strain on my relationships with others in the household
              "COV_E19", "COV_AbHom", #I am confident in my abilities to home school the children within my household
              "COV_HomSch", "COV_E18","COV_HomSch", #In the past seven days, have you home schooled your children due to the coronavirus (COVID-19) outbreak?
-             
-             # time spent
-             "Cov_LeaCh", #In the past seven days, how many hours of learning has the child in your home done using online lessons, worksheets, or other materials provided by their teachers?
-             "Cov_OldCh", #In the past seven days, how many hours of learning has the oldest child in your home done using online lessons, worksheets, or other materials provided by their teacher
              
              #resources
              "COV_ResCh" , #I have access to the resources I need to help me homeschool my children well
@@ -302,10 +125,10 @@ homevar <- c("COV_D22", "COV_E22", "COV_JobHom", #Homeschooling is negatively af
              
              # Filtered
              "COV_MyResSp", #Please specify the other resources that you have used in your homeschooling
-             "COV_ResHScSp",#Please specify the other resources the child in your home has used for their homeschooling
+             "COV_ResHScSp", #Please specify the other resources the child in your home has used for their homeschooling
              "COV_ResOldSp", #Please specify the other resources the oldest child in your home has used for their homeschooling
              "COV_ResOldSp", #Please specify the other resources the oldest child in your home who is still being home schooled has used for their homeschooling.
-             "COV_ChildStSp", #Please specify the other things that are affecting your ability to continue your childrens' studies from home
+             "COV_ChildStSp" #Please specify the other things that are affecting your ability to continue your childrens' studies from home
              
 )
 
@@ -330,16 +153,236 @@ mentalvar <- c("HealIll", #Do you have any physical or mental health conditions 
                "MCZ_1", #Overall, how satisfied are you with your life nowadays, where 0 is 'not at all satisfied' and 10 is 'completely satisfied?"
                "MCZ_2", #Overall, to what extent do you feel that the things you do in your life are worthwhile, where 0 is 'not at all worthwhile' and 10 is 'completely worthwhile'?"
                 # filtered
-               "COV_4Sp", #Please specify the other condition(s), problem(s) or illness(s) that you currently have"
-               "COV_CHealSp", #Please specify the other condition(s), problem(s) or illness(s) that you currently have"
+
                "COV_WellbSp","COV_WellCSp","COV_D32MSp","COV_E32MSp","COV_WellCSp") #Please specify the other ways in which the coronavirus (COVID-19) pandemic has affected your wellbeing."
 
 # questions related to finance
-financevar <- c("GRSBand", #Banded gross income
+financevar <- c("GRSBand", #Banded gross income <- check
                 "COV_PayEx","COV_D46","COV_E46", #Could your household afford to pay an unexpected, but necessary, expense of ?850?
-                "COV_AffHol", #Could your household afford to take a week's holiday away from home this year?
-                "COV_ChFin", #How do you expect the financial position of your household to change over the next 12 months?
-                "COV_B22", "COV_C39", "COV_D41", "COV_E41", #How do you expect the financial position of your household to change over the next 12 months?
+                "COV_ChFin", "COV_B22", "COV_C39", "COV_D41", "COV_E41", #How do you expect the financial position of your household to change over the next 12 months?
                 # filtered
                 "COV_FinSp") #Please specify the other ways in which the coronavirus (COVID-19) outbreak has affected your household finances.
+
+
+# 3) Harmonization variable names ----
+# Create dummy data set for now
+
+# this needs to replaced by loading the actual data (
+dummy <- function(sheet) {
+w <- read_xlsx("Input/8635_opn_2020_covid_all_waves_variable_catalogue.xlsx", 
+                sheet = sheet) %>% 
+  rename(var.name = 1, var.label = 2) 
+df <- data.frame(matrix(rep(1, ncol(w)),ncol = nrow(w), nrow = 1))
+colnames(df) <- w$var.name
+df <- df %>% mutate(sheet = sheet, .before = 1) 
+}
+
+opn_dummy <- purrr::map(sheets, ~dummy(.))
+# )
+
+# create wave, month and year variable
+opn_var <- opn_dummy %>%
+  purrr::map(., . %>% 
+  mutate(sheetID = str_extract(sheet, pattern = "^(.=?_)|^(..=?_)") %>% str_remove("_"),
+         year = str_extract(sheet, pattern = "202."), # extract year
+         month = str_extract(sheet, pattern = "(?<=2020).."), .before = 1) %>% # extract month
+  group_by(month) %>% 
+  mutate(rep = as.numeric(as.factor(sheetID)), .before = 1) %>% # create variable for repetition of survey within month
+  ungroup() %>% 
+  mutate(wave = as.numeric(as.factor(sheetID)), .before = 1) %>%  # numerical ID for wave
+# select variables
+  select_if(names(.) %in% c("sheetID", "year", "month", "rep", "wave", responchar, 
+                            workvar, childvar, homevar, financevar, mentalvar)))
+
+# Load harmonization table
+harm <- read_xlsx("Harmonization_table_varnames.xlsx")
+
+# Harmonization function
+harmonize.var <- function(df){
+  var.matches <- match(colnames(df), 
+                         harm$var.name)
+  used.var <- harm[var.matches, ]
+  df <- df %>% set_colnames(used.var$accvar.name)
+}
+
+# harmonized data 
+opn <- purrr::map(opn_var,  ~harmonize.var(.x)) %>% 
+  # bind rows of waves
+  bind_rows()
+
+
+# 4) Cleaning the data set ----
+sheetslev <- excel_sheets("Input/8635_waves_l_am_variable_values.xlsx")
+
+# load and bind excel sheets to 1 df 
+bind_sheets_lev <- function(sheetname) {
+  read_xlsx("Input/8635_waves_l_am_variable_values.xlsx",
+            sheet = sheetname) %>% 
+    select(position = 1, var.name = 2,var.name2 = 3, val.label = 4, value = 5) %>% # give the same name 
+    mutate(sheet = sheetname) # add sheetname column
+}
+lev_lookup <- map_dfr(sheetslev, ~bind_sheets_lev(.))
+
+lev_lookup <- lev_lookup %>% 
+  select(position, var.name, val.label, value ) %>% 
+  fill(var.name) %>% 
+  filter(., var.name %in% c(responchar, workvar, childvar, homevar, financevar, 
+                            mentalvar)) %>% 
+  distinct()
+
+# set refusal/prefer not to say NA
+opn <- opn %>% 
+  mutate(MCZ_1 = na_if(MCZ_1, "98a"), 
+         MCZ_2 = na_if(MCZ_2, "98a"),
+         MCZ_3 = na_if(MCZ_3, "98a"),
+         MCZ_4 = na_if(MCZ_4, "98a"), 
+         Sectro03 = na_if(Sectro03,"98a"), 
+         TelBand = na_if(TelBand,"98a"), 
+         COV_Wrk01 = na_if(COV_Wrk01,"98a"), 
+         COV_Wellb01 = na_if(COV_Wellb01,"98a"),
+         CasWrk = na_if(CasWrk, 8),
+         HighEd4 = na_if(HighEd4, "8a"),
+         Parent = na_if(Parent, "8a"),
+         COV_ChFin = na_if(COV_ChFin, "8a"),
+         COV_HomSch = na_if(COV_HomSch, "8a"),
+         COV_WrkHom = na_if(COV_WrkHom, "8a"),
+         GRSBand = na_if(GRSBand, "99999998a"),
+         CL_EthnGrp5 = na_if(CL_EthnGrp5, "-8a"),
+         COV_Lon = na_if(COV_Lon, 7),
+         HealIll = na_if(HealIll, 5),
+         COV_KeyWrk = na_if(COV_KeyWrk, 4),
+         COV_WrkCon = na_if(COV_WrkCon, "8a"),
+         COV_WrkPPE = na_if(COV_WrkPPE, 7),
+         COV_SocDis = na_if(COV_SocDis, 7),
+         COV_WrkRea01 = na_if(COV_WrkRea01, "98a"),
+         COV_WrkCon = na_if(COV_WrkCon, "8a"),
+         COV_ResHSc1 = na_if(COV_ResHSc1, "98a"),
+         COV_ResOld1 = na_if(COV_ResOld1, "98a"),
+         COV_Wellb01 = na_if(COV_Wellb01,"98a"),
+         COV_ChFin = na_if(COV_ChFin, "8a"),
+         Cov_RetWk = na_if(Cov_RetWk, 8),
+         COV_Skill1 = na_if(COV_Skill1, 98),
+         COV_Skill1 = na_if(COV_Skill1, "98a"),
+         COV_Medic = na_if(COV_Medic, 4),
+         COV_WrkRea01 = na_if(COV_WrkRea01, "98a"),
+         COV_Inter = na_if(COV_Inter, "8a"),
+         COV_Down = na_if(COV_Down, "8a"),
+         COV_Sleep = na_if(COV_Energy, "8a"),
+         COV_Appet = na_if(COV_Appet, "8a"),
+         COV_Neg = na_if(COV_Neg, "8a"),
+         COV_Conc = na_if(COV_Conc, "8a"),
+         COV_Rest = na_if(COV_Rest, "8a"),
+         COV_GAD1 = na_if(COV_GAD1, "8a"),
+         COV_GAD2 = na_if(COV_GAD2, "8a"),
+         COV_WrkPhyCon = na_if(COV_WrkPhyCon, 9998),
+         COV_WrkClProx = na_if(COV_WrkClProx, 9998),
+         HealIll = na_if(HealIll, 5)
+         )
+        
+# set "don't know" to NA
+opn <- opn %>% 
+  mutate(MCZ_1 = na_if(MCZ_1, "99a"), 
+         MCZ_2 = na_if(MCZ_2, "99a"),
+         MCZ_3 = na_if(MCZ_3, "99a"),
+         MCZ_4 = na_if(MCZ_4, "99a"),
+         COV_Lon = na_if(COV_Lon, 6),
+         HealIll = na_if(HealIll, 4),
+         CasWrk = na_if(CasWrk, 9),
+         Sectro03 = na_if(Sectro03, "99a"),
+         Stat = na_if(Stat, "9a"),
+         FtPtWk = na_if(FtPtWk,  "9a"),
+         TelBand = na_if(TelBand,"99a"),
+         COV_KeyWrk = na_if(COV_KeyWrk, 6),
+         COV_WrkHom = na_if(COV_WrkHom, "9a"),
+         COV_Wrk01 = na_if(COV_Wrk01,"99a"), 
+         COV_WrkCon = na_if(COV_WrkCon, "9a"),
+         COV_WrkPPE = na_if(COV_WrkPPE, 6),
+         COV_SocDis = na_if(COV_SocDis, 6),
+         COV_HomSch = na_if(COV_HomSch, "9a"),
+         COV_Wellb01 = na_if(COV_Wellb01,"99a"),
+         COV_ChFin = na_if(COV_ChFin, "9a"),
+         COV_PayEx = na_if(COV_PayEx, 3),
+         COV_ResHSc1 = na_if(COV_ResHSc1,"99a"),
+         COV_ResOld1 = na_if(COV_ResOld1,"99a"),
+         HighEd4 = na_if(HighEd4, "9a"),
+         Parent = na_if(Parent, "9a"),
+         InEcAc = na_if(InEcAc, "9a"),
+         GRSBand = na_if(GRSBand, "99999999a"),
+         CL_EthnGrp5 = na_if(CL_EthnGrp5, "-9a"),
+         COV_WrkRea01 = na_if(COV_WrkRea01, "99a"),
+         Cov_RetWk = na_if(Cov_RetWk, 7),
+         COV_Skill1 = na_if(COV_Skill1, 7),
+         COV_WrkRea01 = na_if(COV_WrkRea01, "99a"),
+         COV_WrkPhyCon = na_if(COV_WrkPhyCon, "9991a"),
+         COV_WrkClProx = na_if(COV_WrkClProx, "9991a"),
+         COV_WrkPhyCon = na_if(COV_WrkPhyCon, 9999),
+         COV_WrkClProx = na_if(COV_WrkClProx, 9999),
+         COV_Inter = na_if(COV_Inter, "9a"),
+         COV_Down = na_if(COV_Down, "9a"),
+         COV_Sleep = na_if(COV_Energy, "9a"),
+         COV_Appet = na_if(COV_Appet, "9a"),
+         COV_Neg = na_if(COV_Neg, "9a"),
+         COV_Conc = na_if(COV_Conc, "9a"),
+         COV_Rest = na_if(COV_Rest, "9a"),
+         COV_GAD1 = na_if(COV_GAD1, "9a")
+         )
+
+# 5) Analysis
+# sample size per wave and sex
+# 1 = male, 2 = female
+sample_size <- opn %>%
+  group_by(wave, RSex) %>%
+  summarise(SEXSAMPLE = n()) 
+
+sample_size <- sample_size %>% 
+  group_by(wave) %>%
+  mutate(SAMPLE = sum(SEXSAMPLE)) # adding the total sample size
+
+## Are there differences between men and women in keyworker status?
+# available from April -june
+COV_KeyWrk # 1 = key worker 2 = not a key worker
+
+## Are there differences between men and women in the amount of close physical contact at work?
+#In the past seven days, have you done any paid work requiring direct physical contact with othe people?
+# available from april to september
+COV_WrkCon # 1 = yes 2 = no
+
+## Are there differences between men and women in the amount of home-working?
+# available from end of April
+COV_WrkHom # 1 = Yes, 2 = not able to work from home, 3 No
+COV_WrkRea # Reason for working at home
+
+# Variable levels across waves are different -> todo 
+# "COV_WrkReaB01","COV_WrkReaC01","COV_WrkRea01",  #In the past seven days, why have you worked from home?
+# 1. I normally work from home some or all of the time
+# 2. My workplace is closed 
+# 3. My employer asked me to work from home
+# 4. I don't have childcare available
+# 5. I don’t have a safe way to travel to work
+# 6. I am following government advice to work from home
+# 7. I prefer to work from home / I live in a local lockdown area and have been advised to work from home
+# 8. I am self-isolating due to having symptoms of the coronavirus / I prefer to work from home
+# 9. I am self-isolating due to someone else in my household having symptoms of the coronavirus (COVID-19)/ I am self-isolating due to having symptoms of the coronavirus (COVID-19)
+# 10. I am shielding at home due to being clinically vulnerable / I am self-isolating due to someone else in my household having symptoms of the coronavirus (COVID-19)
+# 11. Other (please specify) at COV_WrkSp /I am shielding at home due to being clinically vulnerable
+# 12 Other (please specify)
+
+## Are there differences between men and women about the strain caused by home-schooling?
+COV_HomSch # Whether home-schooled children 1 = yes 2 = no. available apr-jun
+COV_JobHom # Homeschooling is negatively affecting my job. 1 strongly agree - 5 strongly disagree. available apr-may 
+COV_WelHom # Homeschooling is negatively affecting my well-being. 1 strongly agree - 5 strongly disagree. available apr-may 
+COV_AbHom # #I am confident in my abilities to home school the children within my household. 1 strongly agree - 5 strongly disagree. available apr-may 
+
+## Availability of home-schooling resources?
+
+## Are there difference between men and women regarding the impact of covid on mental health?
+# work?
+
+## Impact of COVID on household finances? 
+# 
+
+
+
+
+  
 
