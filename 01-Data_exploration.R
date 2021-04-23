@@ -4,19 +4,21 @@
 ###############################################################################
 
 # To do:
-# - harmonize variable levels
 # - check the data issues files
+# - code some more graphs
 
 # 1) Set-up ----
 # Required packages
 if(!require(tidyverse)) install.packages("tidyverse")
 if(!require(readxl)) install.packages("readxl")
 if(!require(magrittr)) install.packages("magrittr")
+if(!require(ggthemes)) install.packages("ggthemes")
 
 # load packages
 library(tidyverse) # Data wrangling
 library(readxl) # read in xlsx files
 library(magrittr) # set colnames function
+library(ggthemes)
 
 # Lookup table for variable names and questions
 # names of excel sheets
@@ -64,10 +66,20 @@ responchar <- c(# Respondent
                 # Place
                 "CL_Country", #Country
                 "GORA") #Government Office Region
+# Characteristics of the household
+housevar <- c("DVHSize", #Household size", 
+              "HHTypA", #Household type"
+              "NumAdult", #Number of adults in household aged 16 and over"
+              "N1to4", #Number of children in household aged 0-4"
+              "N5to10", #Number of children in household aged 5-10"
+              "N11to15", #Number of children in household aged 11-15"
+              "NumChild", #Number of children in household aged under 16"
+              "NumDepCh") #Number of dependent children in household"
 
 # questions related to work              
 workvar <- c(# Employement
              "InEcAc",  #Employment status
+             
              "CasWrk", # Whether did any casual work for payment, even for an hour, in the reference week
              "FtPtWk",  #And is that job full-time or part-time?
              "Stat",  #In your main job, are you an employee or self-employed?
@@ -84,12 +96,14 @@ workvar <- c(# Employement
              "COV_WrkReaB01","COV_WrkReaC01","COV_WrkRea01",  #In the past seven days, why have you worked from home?
              "COV_WrkReaB_emplwrkhom","COV_WrkReaC_emplwrkhom", "COV_WrkRea_emplwrkhom",  #My employer asked me to work from home
              "COV_WrkReaB_wrkclose","COV_WrkReaC_wrkclose", "COV_WrkRea_wrkclose",  #My workplace is closed
-             # filtered
              "COV_WrkReaSp", #Please specify the reasons you have worked from home in the past seven days.
-             
+             "COV_WrkReaB_govadvice","COV_WrkReaC_govadvice", "COV_WrkRea_govadvice", # I am following government advice to work from home
+             "COV_WrkReaB_nochildcare", "COV_WrkReaC_nochildcare", "COV_WrkRea_nochildcare", #I don't have childcare available
+             "COV_WrkReaB_normhome", "COV_WrkReaC_normhome", "COV_WrkRea_normhome",  # I normally work from home some or all of the time
+
              # COVID safety at work
-             "COV_SocDis",  #In the past seven days, how often have you stayed at least two metres away from other people while a work?
-             "COV_WrkCon",  #In the past seven days, have you done any paid work requiring direct physical contact with othe people?
+             "COV_SocDis",  #In the past seven days, how often have you stayed at least two meters away from other people while a work?
+             "COV_WrkCon",  #In the past seven days, have you done any paid work requiring direct physical contact with other people?
              "COV_WrkPhyCon","COV_D54","COV_E54","COV_WrkCon",  #Over the last 24 hours, how many people at work have you had direct physical contact with?
              "COV_WrkClProx",  #Over the last 24 hours, how many people have you been in close proximity with at work?
              "COV_WrkPPE",  #Personal protective equipment, or PPE, may include gloves, face masks or face shields. In the pas seven days, how often have you used PPE while at work?
@@ -107,8 +121,8 @@ workvar <- c(# Employement
        
 
 # questions related to childcare
-childvar <- c("COV_E17M1", "COV_NotSen1", #For what reasons did the children within your household not attend nursery or school?
-              "COV_WrkReaB_nochildcare", "COV_WrkReaC_nochildcare", "COV_WrkRea_nochildcare") #I don't have childcare available
+childvar <- c("COV_E17M1", "COV_NotSen1") #For what reasons did the children within your household not attend nursery or school?
+              
               
 # Questions related to home-schooling
 homevar <- c("COV_D22", "COV_E22", "COV_JobHom", #Homeschooling is negatively affecting my job
@@ -185,7 +199,7 @@ opn_var <- opn_dummy %>%
   purrr::map(., . %>% 
   mutate(sheetID = str_extract(sheet, pattern = "^(.=?_)|^(..=?_)") %>% str_remove("_"),
          year = str_extract(sheet, pattern = "202."), # extract year
-         month = str_extract(sheet, pattern = "(?<=2020).."), .before = 1) %>% # extract month
+         month = as.numeric(str_extract(sheet, pattern = "(?<=2020)..")), .before = 1) %>% # extract month
   group_by(month) %>% 
   mutate(rep = as.numeric(as.factor(sheetID)), .before = 1) %>% # create variable for repetition of survey within month
   ungroup() %>% 
@@ -208,10 +222,14 @@ harmonize.var <- function(df){
 # harmonized data 
 opn <- purrr::map(opn_var,  ~harmonize.var(.x)) %>% 
   # bind rows of waves
-  bind_rows()
+  bind_rows() %>% 
+  # sort alphabetically
+  select(wave, rep, sheetID, month, sort(colnames(.)))
 
 
 # 4) Cleaning the data set ----
+# Create look up table for variable levels
+# NB excel file only has variable levels of the last waves, the rest in pdf
 sheetslev <- excel_sheets("Input/8635_waves_l_am_variable_values.xlsx")
 
 # load and bind excel sheets to 1 df 
@@ -327,33 +345,149 @@ opn <- opn %>%
          COV_GAD1 = na_if(COV_GAD1, "9a")
          )
 
-# 5) Analysis
+# 5) Analysis ----
 # sample size per wave and sex
 # 1 = male, 2 = female
 sample_size <- opn %>%
   group_by(wave, RSex) %>%
-  summarise(SEXSAMPLE = n()) 
-
-sample_size <- sample_size %>% 
+  summarise(SEXSAMPLE = n())  %>% 
   group_by(wave) %>%
   mutate(SAMPLE = sum(SEXSAMPLE)) # adding the total sample size
+sample_size
 
-## Are there differences between men and women in keyworker status?
-# available from April -june
+sex.label <- c("Men", "Women")
+names(sex.label) <- c(1, 2)
+
+# check variable types
+str(opn)
+
+
+### Q1 - Do (working class) women have a higher risk of contracting COVID at work?
+## Differences between men and women in keyworker status
+# available from April - June
 COV_KeyWrk # 1 = key worker 2 = not a key worker
+opn %>% 
+  select(RSex, COV_KeyWrk) %>% 
+  # calculate percentage
+  group_by(COV_KeyWrk, RSex) %>% 
+  summarise(count = n()) %>% 
+  group_by(COV_KeyWrk) %>% 
+  mutate(percentage = count/sum(count)*100) %>% 
+  filter(!is.na(COV_KeyWrk) & !COV_KeyWrk == 2) %>% 
+  print() %>% 
+  # pie chart
+  ggplot(aes(x = "", y = percentage, fill = RSex)) +
+  # geom_bar(stat="identity", width=1, color="white") +
+  # geom_text(data.frame(RSex = c(1,2),
+  #                      label = sex.label,
+  #                      x = c(50,50), # change position of labels
+  #                      y = c(25,75)), 
+  #           aes(x = x, y = y, label = label)) +
+  coord_polar("y", start = 0) +
+  #theme_void() +
+  theme(legend.position = "none")  +
+  labs(x = NULL, y = NULL,
+       title ="Some kind of statement about the what is shown in the graph",
+       subtitle  = "Percentage of keyworkers by gender",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey"))
 
-## Are there differences between men and women in the amount of close physical contact at work?
-#In the past seven days, have you done any paid work requiring direct physical contact with othe people?
+## Differences between men and women in the amount of close physical contact at work
+#In the past seven days, have you done any paid work requiring direct physical contact with other people?
 # available from april to september
 COV_WrkCon # 1 = yes 2 = no
+opn %>% 
+  select(RSex, COV_WrkCon) %>% 
+  # calculate percentage
+  group_by(COV_WrkCon, RSex) %>% 
+  summarise(count = n()) %>% 
+  group_by(COV_WrkCon) %>% 
+  mutate(percentage = count/sum(count)*100) %>% 
+  filter(!is.na(COV_WrkCon) & !COV_WrkCon == 2) %>% 
+  print() %>% 
+  # pie chart
+  ggplot(aes(x = "", y = percentage, fill = RSex)) +
+  # geom_bar(stat="identity", width=1, color="white") +
+  # geom_text(data.frame(RSex = c(1,2),
+  #                      label = sex.label,
+  #                      x = c(50,50), # change position of labels
+  #                      y = c(25,75)), 
+  #           aes(x = x, y = y, label = label)) +
+  coord_polar("y", start = 0) +
+  #theme_void() +
+  theme(legend.position = "none") +
+  labs(x = NULL, y = NULL,
+       title ="Some kind of statement about what is shown in the graph",
+       subtitle  = "Percentage of men and women that had close physical contact at work in the last 7 days",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey"))
 
-## Are there differences between men and women in the amount of home-working?
+
+## Differences between men and women in the amount of home-working
 # available from end of April
 COV_WrkHom # 1 = Yes, 2 = not able to work from home, 3 No
-COV_WrkRea # Reason for working at home
 
-# Variable levels across waves are different -> todo 
-# "COV_WrkReaB01","COV_WrkReaC01","COV_WrkRea01",  #In the past seven days, why have you worked from home?
+# Line graph showing the proportion men/women working from home
+opn %>% 
+  select(month, RSex, COV_WrkHom) %>% 
+  # calculate percentage men/women working from home
+  group_by(month, RSex, COV_WrkHom) %>% 
+  summarise(count = n()) %>% 
+  group_by(month, RSex) %>% 
+  mutate(percentage = count/sum(count)*100) %>%
+  filter(COV_WrkHom == 1) %>% # yes i'm working from home
+  print() %>% 
+  # line graph
+  ggplot(aes(x = month, y = percentage, colour = RSex)) +
+  geom_line(size = 1, show.legend = FALSE) +
+  # geom_text(data = data.frame(RSex = c(1, 2),
+  #                             label = sex.label,
+  #                             x = c(12, 12), # label coordinates 
+  #                             y = c()), # fill y coordinate so label is positioned at the end of the line
+  #                             aes(x = x, y = y, label = label)) + 
+  scale_y_continuous("%") +
+  scale_x_continuous(labels = month.abb[3:12],
+                     breaks = 3:12) + # add month labels
+  labs(x = NULL, y = NULL,
+       title ="Some kind of statement about the trend shown in the graph",
+       subtitle  = "Percentage of men and women working from home",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey"))
+ #theme?
+
+# Why are you working from home
+# 2 bargraphs (1 men 1 women) with reasons for working at home
+opn %>% 
+  select(RSex,
+         COV_WrkRea_emplwrkhom, # My employer asked me to work from home
+         COV_WrkRea_wrkclose,  # My workplace is closed
+         COV_WrkRea_govadvice, # I am following government advice to work from home
+         COV_WrkRea_nochildcare, # I don't have childcare available
+         COV_WrkRea_normhome) %>%   # I normally work from home some or all of the time
+  # create one variable for reasons of working from home
+  mutate(HomWrkRea = ifelse(COV_WrkRea_emplwrkhom == 1, "My employer asked me to work from home",
+                            ifelse(COV_WrkRea_wrkclose == 1, "My workplace is closed",
+                                   ifelse(COV_WrkRea_govadvice == 1, "I am following government advice to work from home", 
+                                          ifelse(COV_WrkRea_nochildcare == 1, "I don't have childcare available",
+                                                 ifelse(COV_WrkRea_normhome == 1, "I normally work from home some or all of the time", NA)))))) %>% 
+  filter(!is.na(HomWrkRea)) %>% 
+  # calculate percentage
+  group_by(RSex, HomWrkRea) %>% 
+  summarise(count = n()) %>%
+  group_by(RSex) %>% 
+  mutate(percentage = count/sum(count)*100) %>%
+  print() %>% 
+  # barplot
+  ggplot(aes(x = HomWrkRea, y = percentage, group = RSex)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  # facet by sex
+  facet_wrap(~RSex, labeller = labeller(RSex = sex.label)) +
+  labs(x = NULL, y = NULL,
+       title = "Some kind of statement about the trend shown in the graph",
+       subtitle  = "Reasons for working from home",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey"))
+
+
+# more reasons available, include?
+#  #In the past seven days, why have you worked from home?
 # 1. I normally work from home some or all of the time
 # 2. My workplace is closed 
 # 3. My employer asked me to work from home
@@ -367,11 +501,108 @@ COV_WrkRea # Reason for working at home
 # 11. Other (please specify) at COV_WrkSp /I am shielding at home due to being clinically vulnerable
 # 12 Other (please specify)
 
-## Are there differences between men and women about the strain caused by home-schooling?
-COV_HomSch # Whether home-schooled children 1 = yes 2 = no. available apr-jun
-COV_JobHom # Homeschooling is negatively affecting my job. 1 strongly agree - 5 strongly disagree. available apr-may 
-COV_WelHom # Homeschooling is negatively affecting my well-being. 1 strongly agree - 5 strongly disagree. available apr-may 
-COV_AbHom # #I am confident in my abilities to home school the children within my household. 1 strongly agree - 5 strongly disagree. available apr-may 
+### Q2 Are there differences between (working class) men and women thinking about the burden caused by home-schooling?
+# Whether home-schooled children 1 = yes 2 = no. 
+# available apr-jun
+opn %>% 
+  select(RSex, COV_HomSch) %>% 
+  # calculate percentage
+  group_by(COV_HomSch, RSex) %>% 
+  summarise(count = n()) %>% 
+  group_by(COV_HomSch) %>% 
+  mutate(percentage = count/sum(count)*100) %>% 
+  filter(!is.na(COV_HomSch) & !COV_HomSch == 2) %>% 
+  print() %>% 
+  # pie chart
+  ggplot(aes(x = "", y = percentage, fill = RSex)) +
+  # geom_bar(stat="identity", width=1, color="white") +
+  # geom_text(data.frame(RSex = c(1,2),
+  #                      label = sex.label,
+  #                      x = c(50,50), # change position of labels
+  #                      y = c(25,75)), 
+  #           aes(x = x, y = y, label = label)) +
+  coord_polar("y", start = 0) +
+  #theme_void() +
+  theme(legend.position = "none") +
+  labs(x = NULL, y = NULL,
+       title ="Some kind of statement about what is shown in the graph",
+       subtitle  = "Percentage of men and women that had close physical contact at work in the last 7 days",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey"))
+
+# Homeschooling is negatively affecting my job 1 strongly agree - 5 strongly disagree. 
+# available apr-may 
+opn %>% 
+  select(RSex, COV_WelHom) %>% 
+  # calculate percentage
+  group_by(RSex, COV_WelHom) %>% 
+  summarise(count = n()) %>% 
+  group_by(RSex) %>% 
+  mutate(percentage = count/sum(count) * 100) %>% 
+  filter(!is.na(COV_WelHom)) %>% 
+  print() %>% 
+  # stacked 100 % bar plot
+  ggplot(aes(x = COV_WelHom, y = percentage, group = RSex)) +
+  geom_bar(position = "fill", stat = "identity", colour = "black") +
+  coord_flip() +
+  scale_color_manual(labels = c("Strongly agree", "Somewhat agree", "Neutral", "Somewhat disagree",
+                                "Strongly disagree")) +
+  facet_wrap(~RSex, labeller = labeller(RSex = sex.label)) +
+  labs(x = NULL, y = NULL,
+       title = "Some kind of statement about what is shown in the graph",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) +
+  theme_void() +
+  theme(legend.position = "top")
+  
+#  Homeschooling is negatively affecting my well-being. 1 strongly agree - 5 strongly disagree 
+# available apr-may 
+opn %>% 
+  select(RSex, COV_JobHom) %>% 
+  # calculate percentage
+  group_by(RSex, COV_JobHom) %>% 
+  summarise(count = n()) %>% 
+  group_by(RSex) %>% 
+  mutate(percentage = count/sum(count) * 100) %>% 
+  filter(!is.na(COV_JobHom)) %>% 
+  print() %>% 
+  # stacked 100 % bar plot
+  ggplot(aes(x = COV_JobHom, y = percentage, group = RSex)) +
+  geom_bar(position = "fill", stat = "identity", colour = "black") +
+  coord_flip() +
+  scale_color_manual(labels = c("Strongly agree", "Somewhat agree", "Neutral", "Somewhat disagree",
+                                "Strongly disagree")) +
+  facet_wrap(~RSex, labeller = labeller(RSex = sex.label)) +
+  labs(x = NULL, y = NULL,
+       title = "Some kind of statement about what is shown in the graph",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) +
+  theme_void() +
+  theme(legend.position = "top")
+
+# I am confident in my abilities to home school the children within my household. 1 strongly agree - 5 strongly disagree
+# available apr-may 
+opn %>% 
+  select(RSex, COV_AbHom) %>% 
+  # calculate percentage
+  group_by(RSex, COV_AbHom) %>% 
+  summarise(count = n()) %>% 
+  group_by(RSex) %>% 
+  mutate(percentage = count/sum(count) * 100) %>% 
+  filter(!is.na(COV_AbHom)) %>% 
+  print() %>% 
+  # stacked 100 % bar plot
+  ggplot(aes(x = COV_AbHom, y = percentage, group = RSex)) +
+  geom_bar(position = "fill", stat = "identity", colour = "black") +
+  coord_flip() +
+  scale_color_manual(labels = c("Strongly agree", "Somewhat agree", "Neutral", "Somewhat disagree",
+                                "Strongly disagree")) +
+  facet_wrap(~RSex, labeller = labeller(RSex = sex.label)) +
+  labs(x = NULL, y = NULL,
+       title = "Some kind of statement about what is shown in the graph",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) +
+  theme_void() +
+  theme(legend.position = "top")
+
+
+
 
 ## Availability of home-schooling resources?
 
