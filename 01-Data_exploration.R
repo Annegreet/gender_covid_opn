@@ -3,9 +3,6 @@
 ####                  Data exploration                                    #####    
 ###############################################################################
 
-# To do:
-# - check the data issues files
-# - code some more graphs
 
 # 1) Set-up ----
 # Required packages
@@ -20,7 +17,7 @@ library(readxl) # read in xlsx files
 library(magrittr) # set colnames function
 library(ggthemes)
 
-# Lookup table for variable names and questions
+# Look-up table for variable names and questions
 # names of excel sheets
 sheets <- excel_sheets("Input/8635_opn_2020_covid_all_waves_variable_catalogue.xlsx")
 
@@ -29,10 +26,28 @@ bind_sheets <- function(sheetname) {
 read_xlsx("Input/8635_opn_2020_covid_all_waves_variable_catalogue.xlsx",
           sheet = sheetname) %>% 
     rename(var.name = 1, var.label = 2) %>% # give the same name 
-    mutate(sheet = sheetname) # add sheetname column
+    mutate(sheet = sheetname) # add sheet name column
 }
 
 opn_lookup <- purrr::map_dfr(sheets, ~bind_sheets(.))
+
+# Look-up table for variable levels
+# NB excel file only has variable levels of the last waves, first waves in pdf
+sheetslev <- excel_sheets("Input/8635_waves_l_am_variable_values.xlsx")
+
+# load and bind excel sheets to 1 df 
+bind_sheets_lev <- function(sheetname) {
+  read_xlsx("Input/8635_waves_l_am_variable_values.xlsx",
+            sheet = sheetname) %>% 
+    select(position = 1, var.name = 2, var.name2 = 3, val.label = 4, value = 5) %>% # give the same name 
+    mutate(sheet = sheetname) # add sheet name column
+}
+lev_lookup <- map_dfr(sheetslev, ~bind_sheets_lev(.))
+
+lev_lookup <- lev_lookup %>% 
+  select(position, var.name, val.label, value) %>% 
+  fill(var.name) %>% 
+  distinct()
 
 # 2) Selecting variables -----
 # Survey characteristics
@@ -66,6 +81,7 @@ responchar <- c(# Respondent
                 # Place
                 "CL_Country", #Country
                 "GORA") #Government Office Region
+
 # Characteristics of the household
 housevar <- c("DVHSize", #Household size", 
               "HHTypA", #Household type"
@@ -224,30 +240,10 @@ opn <- purrr::map(opn_var,  ~harmonize.var(.x)) %>%
   # bind rows of waves
   bind_rows() %>% 
   # sort alphabetically
-  select(wave, rep, sheetID, month, sort(colnames(.)))
+  select(wave, rep, sheetID, year, month, sort(colnames(.)))
 
 
 # 4) Cleaning the data set ----
-# Create look up table for variable levels
-# NB excel file only has variable levels of the last waves, the rest in pdf
-sheetslev <- excel_sheets("Input/8635_waves_l_am_variable_values.xlsx")
-
-# load and bind excel sheets to 1 df 
-bind_sheets_lev <- function(sheetname) {
-  read_xlsx("Input/8635_waves_l_am_variable_values.xlsx",
-            sheet = sheetname) %>% 
-    select(position = 1, var.name = 2,var.name2 = 3, val.label = 4, value = 5) %>% # give the same name 
-    mutate(sheet = sheetname) # add sheetname column
-}
-lev_lookup <- map_dfr(sheetslev, ~bind_sheets_lev(.))
-
-lev_lookup <- lev_lookup %>% 
-  select(position, var.name, val.label, value ) %>% 
-  fill(var.name) %>% 
-  filter(., var.name %in% c(responchar, workvar, childvar, homevar, financevar, 
-                            mentalvar)) %>% 
-  distinct()
-
 # set refusal/prefer not to say NA
 opn <- opn %>% 
   mutate(MCZ_1 = na_if(MCZ_1, "98a"), 
@@ -345,7 +341,7 @@ opn <- opn %>%
          COV_GAD1 = na_if(COV_GAD1, "9a")
          )
 
-# 5) Analysis ----
+# 5) Data exploration ----
 # sample size per wave and sex
 # 1 = male, 2 = female
 sample_size <- opn %>%
@@ -361,64 +357,10 @@ names(sex.label) <- c(1, 2)
 # check variable types
 str(opn)
 
+opn <- opn %>% 
+  mutate(across(CasWrk:TelBand, as.factor))
 
-### Q1 - Do (working class) women have a higher risk of contracting COVID at work?
-## Differences between men and women in keyworker status
-# available from April - June
-COV_KeyWrk # 1 = key worker 2 = not a key worker
-opn %>% 
-  select(RSex, COV_KeyWrk) %>% 
-  # calculate percentage
-  group_by(COV_KeyWrk, RSex) %>% 
-  summarise(count = n()) %>% 
-  group_by(COV_KeyWrk) %>% 
-  mutate(percentage = count/sum(count)*100) %>% 
-  filter(!is.na(COV_KeyWrk) & !COV_KeyWrk == 2) %>% 
-  print() %>% 
-  # pie chart
-  ggplot(aes(x = "", y = percentage, fill = RSex)) +
-  # geom_bar(stat="identity", width=1, color="white") +
-  # geom_text(data.frame(RSex = c(1,2),
-  #                      label = sex.label,
-  #                      x = c(50,50), # change position of labels
-  #                      y = c(25,75)), 
-  #           aes(x = x, y = y, label = label)) +
-  coord_polar("y", start = 0) +
-  #theme_void() +
-  theme(legend.position = "none")  +
-  labs(x = NULL, y = NULL,
-       title ="Some kind of statement about the what is shown in the graph",
-       subtitle  = "Percentage of keyworkers by gender",
-       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey"))
-
-## Differences between men and women in the amount of close physical contact at work
-#In the past seven days, have you done any paid work requiring direct physical contact with other people?
-# available from april to september
-COV_WrkCon # 1 = yes 2 = no
-opn %>% 
-  select(RSex, COV_WrkCon) %>% 
-  # calculate percentage
-  group_by(COV_WrkCon, RSex) %>% 
-  summarise(count = n()) %>% 
-  group_by(COV_WrkCon) %>% 
-  mutate(percentage = count/sum(count)*100) %>% 
-  filter(!is.na(COV_WrkCon) & !COV_WrkCon == 2) %>% 
-  print() %>% 
-  # pie chart
-  ggplot(aes(x = "", y = percentage, fill = RSex)) +
-  # geom_bar(stat="identity", width=1, color="white") +
-  # geom_text(data.frame(RSex = c(1,2),
-  #                      label = sex.label,
-  #                      x = c(50,50), # change position of labels
-  #                      y = c(25,75)), 
-  #           aes(x = x, y = y, label = label)) +
-  coord_polar("y", start = 0) +
-  #theme_void() +
-  theme(legend.position = "none") +
-  labs(x = NULL, y = NULL,
-       title ="Some kind of statement about what is shown in the graph",
-       subtitle  = "Percentage of men and women that had close physical contact at work in the last 7 days",
-       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey"))
+saveRDS(opn, "OPN_cleaned.rds")
 
 
 ## Differences between men and women in the amount of home-working
