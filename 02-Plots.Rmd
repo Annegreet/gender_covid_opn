@@ -1,0 +1,369 @@
+---
+title: "Visualisations OPN survey"
+author: "Annegreet Veeken"
+date: "28-4-2021"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r libraries}
+# Required packages
+if(!require(tidyverse)) install.packages("tidyverse")
+if(!require(ggthemes)) install.packages("ggthemes")
+if(!require(scales)) install.packages("scales")
+
+# load packages
+library(tidyverse) # Data wrangling
+library(ggthemes) # alternative themes
+library(scales) # colours
+library(ggtext)
+library(jtools)
+```
+
+```{r load data}
+# cleaned OPN data
+#opn <-  readRDS("OPN_cleaned.rds")
+# Dummy data set
+opn <- tibble(month = sort(rep(c(3:12), 100)),
+              ID = seq(1:1000),
+              RSex = as.factor(sample(c(1,2), 1000, replace = TRUE)),
+              TelBand = as.factor(sample(c(1:11), 1000, replace = TRUE)),
+              COV_WrkCon = as.factor(sample(c(1,2), 1000, replace = TRUE)),
+              COV_KeyWrk = as.factor(sample(c(1,2), 1000, replace = TRUE)),
+              COV_WrkHom = as.factor(sample(c(1,2), 1000, replace = TRUE)),
+              COV_WrkRea_emplwrkhom = as.factor(sample(c(0,1), 1000, 
+                                                       replace = TRUE)),
+              COV_WrkRea_wrkclose = as.factor(sample(c(0,1), 1000, 
+                                                     replace = TRUE)),
+              COV_WrkRea_govadvice = as.factor(sample(c(0,1), 1000, 
+                                                      replace = TRUE)),
+              COV_WrkRea_nochildcare = as.factor(sample(c(0,1), 1000, 
+                                                        replace = TRUE)),
+              COV_WrkRea_normhome = as.factor(sample(c(0,1), 1000, 
+                                                     replace = TRUE)),
+              COV_HomSch = as.factor(sample(c(1,2), 1000, 
+                                                     replace = TRUE)),
+              COV_WelHom = as.factor(sample(c(1:5), 1000, replace = TRUE)),
+              COV_JobHom = as.factor(sample(c(1:5), 1000, replace = TRUE)),
+              COV_AbHom = as.factor(sample(c(1:5), 1000, replace = TRUE)))
+
+# Create low/high income variable
+low <- opn %>% 
+  group_by(TelBand) %>% 
+  summarise(count = n()) %>% 
+  mutate(percentage = cumsum(count/sum(count)*100)) %>% 
+  filter(percentage < 50) %>% # use the median to define low/high
+  pull(TelBand)
+
+opn <- opn %>% 
+  mutate(Income = 
+           ifelse(TelBand %in% low, "1", "2"),# 1 = low income, 2 = high income
+         class = ifelse(RSex == 1 & Income == 1, "1", # low income men
+                        ifelse(RSex == 1 & Income == 2, "2", # high income men
+                               ifelse(RSex == 2 & Income == 1, "3", # low income women
+                                      ifelse(RSex == 2 & Income == 2, "4", NA))))) # high income women
+
+# House keeping
+sexlabel <- c("Men", "Women")
+names(sexlabel) <- c(1,2)
+claslabel <- c("Low income men", "High income men", "Low income women", 
+               "High income women")
+names(claslabel) <- c(1,2,3,4)
+sexcolour <- c("1" = "#DF9216", "2" = "#791F83")
+clascolor <- c("3" = "#DF9216", "4" = "#EEB558", "1" = "#9066A3", "2" = "#791F83")
+stackedcolor <-  c("1" = "#DF9216", "2" = "#EEB558", "3" = "#DCDBA8",
+                   "4" = "#9066A3", "5" = "#791F83")
+
+# adjust the economist theme
+theme_economist_white <- theme_economist_white() + theme(plot.title =  element_text(hjust = 0),
+                     plot.subtitle =  element_text(hjust = 0))
+```
+
+
+
+```{r physical contact, fig.width = 8}
+## Differences between men and women in the amount of close physical contact at work
+#In the past seven days, have you done any paid work requiring direct physical contact with other people?
+# available from april to september
+# COV_WrkCon # 1 = yes 2 = no
+wrkcon <- opn %>% 
+  select(class, COV_WrkCon) %>% 
+  # calculate percentage
+  group_by(COV_WrkCon,class) %>% 
+  summarise(count = n()) %>% 
+  group_by(COV_WrkCon) %>% 
+  mutate(percentage = count/sum(count)*100) %>% 
+  filter(!is.na(COV_WrkCon) & !COV_WrkCon == 2) 
+
+# label position
+wrkcon.labels <- wrkcon %>% 
+  mutate(labels = c("Low income\nmen", "High income\nmen", "Low income\nwomen", 
+               "High income\nwomen"),
+    ypos = cumsum(percentage) - 0.5*percentage)
+
+# pie chart
+ggplot(wrkcon, aes(x = "", y = percentage, fill = class)) +
+  geom_bar(stat ="identity", width = 1, color = "white") +
+  # scale and color
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = clascolor) +
+  # annotation
+  geom_text(aes(y = wrkcon.labels$ypos, label = wrkcon.labels$labels), 
+            color = "white") +
+  labs(x = NULL, y = NULL, title ="Some kind of statement about what is\nshown in the graph",
+       subtitle  = "Percentage of <span style = 'color:#DF9216;'>men</span> and <span style = 'color:#791F83;'>women</span> that having close physical contact at work",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) +
+  # theme
+  theme_economist_white(gray_bg = FALSE) +
+  theme(legend.position = "none",
+        plot.subtitle =  element_markdown(hjust = 0),
+        plot.caption = element_text(hjust = 0))
+```
+
+```{r key worker, fig.width = 8,eval=FALSE}
+## Differences between men and women in keyworker status
+# available from April - June
+# COV_KeyWrk # 1 = key worker 2 = not a key worker
+keywrk <- opn %>% 
+  select(class, COV_KeyWrk) %>% 
+  # calculate percentage
+  group_by(COV_KeyWrk, class) %>% 
+  summarise(count = n()) %>% 
+  group_by(COV_KeyWrk) %>% 
+  mutate(percentage = count/sum(count)*100) %>% 
+  filter(!is.na(COV_KeyWrk) & !COV_KeyWrk == 2)
+   
+
+# label position
+keywrk.labels <- keywrk%>% 
+  mutate(labels = c("Low income\nmen", "High income\nmen", "Low income\nwomen", 
+               "High income\nwomen"),
+    ypos = cumsum(percentage) - 0.5*percentage)
+
+# pie chart
+ggplot(keywrk, aes(x = "", y = percentage, fill = class)) +
+  geom_bar(stat ="identity", width = 1, color = "white") +
+  # scale and color
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = clascolor) +
+  # annotation
+  geom_text(aes(y = keywrk.labels$ypos, label = keywrk.labels$labels), 
+            color = "white") +
+  labs(x = NULL, y = NULL,
+       title ="Some kind of statement about what is shown\nin the graph",
+       subtitle  = "Percentage of <span style = 'color:#DF9216;'>men</span> and <span style = 'color:#791F83;'>women</span> that have a keyworker status",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) + 
+  # theme
+  theme_economist_white(gray_bg = FALSE) +
+  theme(legend.position = "none",
+                plot.subtitle =  element_markdown(hjust =0))
+
+```
+
+
+
+```{r home-work time, fig.width = 8}
+## Differences between men and women in the amount of home-working
+# available from end of April
+# Line graph showing the proportion men/women working from home
+homwrk <- opn %>% 
+  select(month, RSex, COV_WrkHom) %>% 
+  # calculate percentage men/women working from home
+  group_by(month, RSex, COV_WrkHom) %>% 
+  summarise(count = n()) %>% 
+  group_by(month, RSex) %>% 
+  mutate(percentage = count/sum(count)*100) %>%
+  filter(COV_WrkHom == 1)  # yes i'm working from home
+  
+
+homwrk.labels <- tibble(RSex = as.factor(c(1,2)),
+                        labels = as.factor(sexlabel),
+                        xpos = c(12,12),
+                        ypos = homwrk$percentage[homwrk$month==12]) 
+
+# line graph
+ggplot(homwrk, aes(x = month, y = percentage, colour = RSex)) +
+  geom_line(size = 1, show.legend = FALSE) +
+  # scale and colour
+  scale_colour_manual(values = sexcolour) +
+  scale_y_continuous("%") +
+  scale_x_continuous(labels = month.abb[3:12],
+                     breaks = 3:12) + # add month labels
+  # annotation
+  labs(x = NULL, y = NULL,
+       title ="Some kind of statement about the trend\nshown in the graph",
+       subtitle = "Percentage of <span style = 'color:#DF9216;'>men</span> and <span style = 'color:#791F83;'>women</span>  working from home",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) +
+   geom_text(data = homwrk.labels, aes(x = xpos, y = ypos,label = labels),
+             hjust = 0) +
+  # theme
+  theme_economist_white(gray_bg = FALSE) +
+  theme(legend.position = "none",
+        plot.margin = unit(c(1,3,1,1),units = "lines"),
+        plot.title = element_markdown(),
+        plot.subtitle =  element_markdown(hjust = 0)) +
+  coord_cartesian(clip = "off") #avoid labels from being clipped off
+```
+
+```{r home work reasons, fig.width = 10}
+
+# Why are you working from home
+# 2 bargraphs (1 men 1 women) with reasons for working at home
+wrkhom <- opn %>% 
+  select(RSex,
+         COV_WrkRea_emplwrkhom, # My employer asked me to work from home
+         COV_WrkRea_wrkclose,  # My workplace is closed
+         COV_WrkRea_govadvice, # I am following government advice to work from home
+         COV_WrkRea_nochildcare, # I don't have childcare available
+         COV_WrkRea_normhome) %>%   # I normally work from home some or all of the time
+  # create one variable for reasons of working from home
+  mutate(HomWrkRea = ifelse(COV_WrkRea_emplwrkhom == 1, "My employer asked me to work from home",
+                            ifelse(COV_WrkRea_wrkclose == 1, "My workplace is closed",
+                                   ifelse(COV_WrkRea_govadvice == 1, "I am following government advice to work from home", 
+                                          ifelse(COV_WrkRea_nochildcare == 1, "I don't have childcare available",
+                                                 ifelse(COV_WrkRea_normhome == 1, "I normally work from home some or all of the time", NA))))) %>% as.factor()) %>% 
+  filter(!is.na(HomWrkRea)) %>% 
+  # calculate percentage
+  group_by(RSex, HomWrkRea) %>% 
+  summarise(count = n()) %>%
+  group_by(RSex) %>% 
+  mutate(percentage = count/sum(count)*100) %>%
+  # reorder bar plot
+  mutate(HomWrkRea = reorder(HomWrkRea, percentage))  #%>%  
+
+# barplot
+ggplot(wrkhom, aes(x = HomWrkRea, y = percentage, fill = RSex)) +
+  geom_bar(stat = "identity") +
+  # scale and color
+  coord_flip() +
+  scale_y_continuous("%") +
+  scale_fill_manual(values = sexcolour) +
+  #theme
+  theme_economist_white(gray_bg = FALSE) + 
+  theme(legend.position = "none",
+        axis.text.y = element_text(hjust = 1),
+        panel.grid.major.y = element_blank(),
+        panel.grid.major.x =  element_line(colour = "grey40"),
+        axis.line.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  # facet by sex
+  facet_wrap(~RSex, labeller = labeller(RSex = sexlabel)) +
+  # annontation 
+  labs(x = NULL, y = NULL,
+       title = "Some kind of statement about the trend shown\nin the graph",
+       subtitle = "Reasons for working from home",
+       caption = "Source: Office for National Statistics - Opinions and Lifestyle survey")
+
+# more reasons available, include?
+#  #In the past seven days, why have you worked from home?
+# 1. I normally work from home some or all of the time
+# 2. My workplace is closed 
+# 3. My employer asked me to work from home
+# 4. I don't have childcare available
+# 5. I don’t have a safe way to travel to work
+# 6. I am following government advice to work from home
+# 7. I prefer to work from home / I live in a local lockdown area and have been advised to work from home
+# 8. I am self-isolating due to having symptoms of the coronavirus / I prefer to work from home
+# 9. I am self-isolating due to someone else in my household having symptoms of the coronavirus (COVID-19)/ I am self-isolating due to having symptoms of the coronavirus (COVID-19)
+# 10. I am shielding at home due to being clinically vulnerable / I am self-isolating due to someone else in my household having symptoms of the coronavirus (COVID-19)
+# 11. Other (please specify) at COV_WrkSp /I am shielding at home due to being clinically vulnerable
+# 12 Other (please specify)
+```
+
+
+```{r homeschool men/women, fig.width = 8, eval = FALSE}
+### Q2 Are there differences between (working class) men and women thinking about the burden caused by home-schooling?
+# Whether home-schooled children 1 = yes 2 = no. 
+# available apr-jun
+homsch <- opn %>% 
+  select(class, COV_HomSch) %>% 
+  # calculate percentage
+  group_by(COV_HomSch, class) %>% 
+  summarise(count = n()) %>% 
+  group_by(COV_HomSch) %>% 
+  mutate(percentage = count/sum(count)*100) %>% 
+  filter(!is.na(COV_HomSch) & !COV_HomSch == 2)  
+
+# label position
+homsch.labels <- homsch %>% 
+  mutate(labels = c("Low income\nmen", "High income\nmen", "Low income\nwomen", 
+               "High income\nwomen"),
+    ypos = cumsum(percentage) - 0.5*percentage)
+
+# pie chart
+ggplot(homsch, aes(x = "", y = percentage, fill = class)) +
+  geom_bar(stat ="identity", width = 1, color = "white") +
+  # scale and color
+  coord_polar("y", start = 0) +
+  scale_fill_manual(values = clascolor) +
+  # annotation
+  geom_text(aes(y = homsch.labels$ypos, label = homsch.labels$labels), 
+            color = "white") +
+  labs(x = NULL, y = NULL,
+       title ="Some kind of statement about what is shown in the graph",
+       subtitle  = "Percentage of <span style = 'color:#DF9216;'>men</span> and <span style = 'color:#791F83;'>women</span> that home-schooled children",
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) +
+  # theme
+  theme_economist_white(gray_bg = FALSE) +
+  theme(legend.position = "none",
+        plot.subtitle =  element_markdown(hjust = 0))
+```
+
+```{r homeschool , fig.height = 2, fig.width = 8}
+var <- "COV_JobHom" 
+title <- tibble(var = c("COV_JobHom","COV_WelHom","COV_AbHom"),
+                title = c("X% of men/women say homeschooling is negatively affecting their job",
+                          "X% of men/women say homeschooling is negatively affecting their wellbeing",
+                          "X% of men/women are not confident in their ability to home-school"))
+                
+# Homeschooling is negatively affecting my job 1 strongly agree - 5 strongly disagree. 
+# available apr-may 
+piefunc <- function(var) {
+hom <- opn %>% 
+  select(RSex, var = var) %>% 
+  # calculate percentage
+  group_by(RSex, var) %>% 
+  summarise(count = n()) %>% 
+  group_by(RSex) %>% 
+  mutate(percentage = count/sum(count) * 100) %>% 
+  filter(!is.na(var)) 
+   
+
+hom.labels <- hom %>% 
+  transmute(label = round(percentage, 0),
+    ypos = cumsum(percentage))
+
+# stacked 100 % bar plot
+ggplot(hom, aes(x = 1, y = percentage, fill = var)) +
+  geom_bar(position = "fill", stat = "identity", colour = "black") +
+  # scales and colour
+  coord_flip() +
+  scale_fill_manual(name = "", values = stackedcolor,
+    labels = c("Strongly agree", "Somewhat agree",
+               "Neutral", "Somewhat disagree",
+               "Strongly disagree")) +
+  # annotation
+  geom_text(aes(y = hom$percentage, label = paste(hom.labels$label,"%",sep = "")),
+            position=position_fill(vjust=0.5), colour = "white") + 
+  labs(x = NULL, y = NULL,
+       title = title$title[title$var == var],
+       caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) +
+  # facet by sex
+  facet_wrap(~RSex, labeller = labeller(RSex = sexlabel)) +
+  # theme
+  theme_economist_white(gray_bg = FALSE) +
+  theme(legend.position = "top",
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        panel.grid.major = element_blank()) 
+} 
+purrr::map(title$var, ~piefunc(.))
+```
+
