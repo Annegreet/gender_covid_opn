@@ -1,5 +1,5 @@
 ---
-title: "Visualisations OPN survey"
+title: "Visualizations OPN survey"
 author: "Annegreet Veeken"
 date: "28-4-2021"
 output:
@@ -117,7 +117,7 @@ ggplot(wrkcon, aes(x = "", y = percentage, fill = class)) +
   geom_text(aes(y = wrkcon.labels$ypos, label = wrkcon.labels$labels), 
             color = "white") +
   labs(x = NULL, y = NULL, title ="Some kind of statement about what is\nshown in the graph",
-       subtitle  = "Percentage of <span style = 'color:#DF9216;'>men</span> and <span style = 'color:#791F83;'>women</span> that having close physical contact at work",
+       subtitle  = "Percentage of <span style = 'color:#DF9216;'>men</span> and <span style = 'color:#791F83;'>women</span> that have close physical contact at work",
        caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) +
   # theme
   theme_economist_white(gray_bg = FALSE) +
