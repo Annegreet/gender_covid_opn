@@ -3,7 +3,9 @@ library(shiny)
 library(tidyverse)
 library(ggplot2)
 library(ggthemes)
-
+library(janitor)
+library(sjlabelled)
+library(shinythemes)
 # House keeping
 sexlabel <- c("Men", "Women")
 sexcolour <- c("Men" = "#DF9216", "Women" = "#791F83")
@@ -11,6 +13,7 @@ agecolor <-  c("16-29" = "#FC8DB7", "30-49"= "#006295", "50-69" = "#A3BE41", "70
 likertcolor <-  c("(1) Strongly agree"  = "#FC8DB7", "(2) Somewhat agree" = "#791F83", 
                   "(3) Neither agree nor disagree" = "#006295",
                   "(4) Somewhat disagree" = "#DF9216", "(5) Strongly disagree" = "#A3BE41")
+
 
 #----load & prepare data sets----
 ## Homeworking
@@ -63,8 +66,10 @@ why_homwrk <- readRDS("Home-working.rds") %>%
 wellbeing <- readRDS("Wellbeing.rds") %>% 
     filter(Confidence == "%") %>%  
     filter(!Category == "16 to 69" & !Category == "70+") %>%
-    filter(!Option == "Other" &
-               !Option == "Unable to exercise as normal" ) %>% 
+    filter(!Option %in% c("Other", "Unable to exercise as normal", "Feeling like a burden to others",
+                          "Spending too much time alone", "Feeling bored", 
+                          "Strain on my personal relationships")
+           ) %>% 
     mutate(Period = ifelse(date <= "2020-07-10", "Spring 2020", "Winter 2020/21"),
            Option = str_replace(Option, "Making my mental health worse", "My mental health is worse")) %>% 
     mutate(Characteristic = ifelse(str_detect(Category, pattern = "Working population|All persons total"),
@@ -76,9 +81,46 @@ contact_work <- readRDS("ContactWork.rds") %>%
     filter(Confidence == "%") %>% 
     filter(Category == "Men" | Category == "Women" | Category == "All persons total")
 
+## LFS data
+lfs <- readRDS("Employement.rds")
+## non-standard work
+d_precariety <- readRDS("Precarious.rds")
+
 # Define UI ----
 ui <-
-navbarPage("ONS-covid",
+navbarPage("",
+           theme = shinytheme("yeti"),
+           tabPanel("Introduction",
+                    includeMarkdown("About.md")
+                    ),
+           tabPanel("Employment",
+                    selectInput(inputId = "characteristic.em", label = "Characteristic",
+                                choices = list("None", "Age", "Ethnicity")),
+                    sliderInput(inputId = "quarter", "Quarter",
+                                min = 1, max = 18, 
+                                value = c(1,18)),
+                    mainPanel(
+                        plotOutput("linegraph.em")
+                        )
+                    ),
+           navbarMenu("Non-standard work",
+                    tabPanel("Part-time work",
+                    selectInput(inputId = "characteristic.nsw", label = "Characteristic",
+                                    choices = list("None", "Ethnicity", "Occupation", "Ethnicity & Occupation")),
+                    mainPanel(
+                        plotOutput("parttime"))
+                    ),
+                    tabPanel("Fixed time work",
+                    mainPanel(
+                        plotOutput("why_permanent"))
+                    ),
+                    tabPanel("Flexitime",
+                    selectInput(inputId = "characteristic.flex", label = "Characteristic",
+                                choices = list("Sex" = "SEX",
+                                               "Ethnicity" = "ETHUKEUL_2")),
+                    mainPanel(
+                        plotOutput("flex"))
+                    )),
            tabPanel("Homeworking",
                     selectInput(inputId = "characteristic", label = "Characteristic",
                                 choices = list("Sex", "Age")),
@@ -89,8 +131,7 @@ navbarPage("ONS-covid",
                                    start = min(homwrk$date), end = max(homwrk$date)),
                     mainPanel(
                         plotOutput("linegraph"),
-                        plotOutput("barplot")
-                    ),
+                        plotOutput("barplot"))
            ),
            tabPanel("Mental health",
                     selectInput(inputId = "characteristic.mh", label = "Characteristic",
@@ -106,20 +147,515 @@ navbarPage("ONS-covid",
                     mainPanel(
                         plotOutput("dotplot2")
                     )
-           ),
-           
-           navbarMenu("More",
-                      tabPanel("About the project",
-                               verbatimTextOutput(outputId = "about", placeholder = TRUE)
-                      ),
-                      tabPanel("Contact",
-                               verbatimTextOutput(outputId = "contact", placeholder = TRUE)
-                      )
            )
+           
 )
 
 # Define server ----
 server <- function(input, output) {
+
+        # Employment
+        output$linegraph.em <- renderPlot({
+           p <-  lfs %>%
+                filter(AGE >= 18 & AGE <= 64 & ILODEFR == "In employment"  |
+                           ILODEFR == "Not employed"  & QUARTER <= 16) %>%
+                filter(!AGEEUL_2 == "Above 64" |!AGEEUL_2 == "Below 18") %>%
+                group_by(QUARTER, ILODEFR, SEX) %>%
+                summarise(Active = sum(PWT18))  %>%
+                pivot_wider(names_from = 2, values_from = Active) %>%
+                adorn_totals("col") %>%
+                mutate(Rate = `Not employed` / Total) %>%
+                ggplot(aes(x = QUARTER, y = Rate, group = SEX, color = SEX)) +
+                geom_vline(xintercept = 4, color = "#c9c9c9") + # grid line between 2019/2020
+                geom_vline(xintercept = 15, color = "#c9c9c9") + # grid line between 2020/2021
+                geom_line(size = 1, show.legend = FALSE) +
+                geom_point() +
+                # scales
+                scale_colour_manual("",values = c("#DF9216", "#791F83")) +
+                scale_y_continuous("%", breaks = seq(0,0.2, 0.02), limits = c(0, 0.18), labels =
+                                       scales::percent_format(accuracy = 1L)) +
+                scale_x_continuous(breaks = c(1:16),
+                                   limits = c(input$quarter[1], input$quarter[2]),
+                                   labels = c("Jan-\nMar","Apr-\nJun","Jul-\nSep","Oct-\nDec",
+                                              "Jan-\nMar", "Feb-\nApr", "Mar-\nMay", "Apr-\nJun", "May-\nJul",
+                                              "Jun-\nAug", "Jul-\nSep","Aug-\nOct", "Sep-\nNov", "Oct-\nDec",
+                                              "Nov-\nJan", "Dec-\nFeb")) +
+                # theme
+                theme_economist_white(gray_bg = FALSE) +
+                theme(plot.margin = unit(c(1,3,1,1), units = "lines"),
+                      plot.title = element_text(vjust = 3))  +
+                # annotation
+                labs(x = NULL, y = NULL,
+                     title = "Unemployement during the COVID-19 pandemic",
+                     subtitle = "Unemploymement rate UK population, 2019/2021",
+                     caption = "Source: UK Labour Force Survey (Person)") +
+                annotate(geom = "text", x = 2, y = 0.17, label = "2019", size = 3) +
+                annotate(geom = "text", x = 9.5, y = 0.17, label = "2020", size = 3) +
+                annotate(geom = "text", x = 16, y = 0.17, label = "2021", size = 3) 
+           p 
+           if(input$characteristic.em == "Age")
+            p <-
+               lfs %>%
+                filter(AGE >= 18 & AGE <= 64 & ILODEFR == "In employment"  |
+                           ILODEFR == "Not employed"  & QUARTER <= 16) %>%
+                group_by(QUARTER, ILODEFR, AGEEUL_2, SEX) %>%
+                summarise(Active = sum(PWT18))  %>%
+                pivot_wider(names_from = 2, values_from = Active) %>%
+                adorn_totals("col") %>%
+                mutate(Rate = `Not employed` / Total) %>%
+               subset(., !AGEEUL_2 %in% c("Above 64", "Below 18")) %>% 
+               ggplot(aes(x = QUARTER, y = Rate, group = SEX, color = SEX)) +
+                geom_vline(xintercept = 4, color = "#c9c9c9") + # grid line between 2019/2020
+                geom_vline(xintercept = 15, color = "#c9c9c9") + # grid line between 2020/2021
+                geom_line(size = 1, show.legend = FALSE) +
+                geom_point() +
+               # faceting 
+               facet_wrap(~AGEEUL_2, ncol = 2) +
+                #scales
+                scale_colour_manual("",values = c("#DF9216", "#791F83")) +
+                scale_y_continuous("%", breaks = seq(0,0.2, 0.02), limits = c(0,0.18), labels =
+                                       scales::percent_format(accuracy = 1L)) +
+                scale_x_continuous(breaks = c(1:16),
+                                   limits = c(input$quarter[1], input$quarter[2]),
+                                   labels = c("Jan-\nMar","","Jul-\nSep","",
+                                              "Jan-\nMar", "", "Mar-\nMay", "", "May-\nJul",
+                                              "", "Jul-\nSep","", "Sep-\nNov", "",
+                                              "Nov-\nJan", "")) +
+                
+                # theme
+                theme_economist_white(gray_bg = FALSE) +
+                theme(plot.margin = unit(c(1,3,1,1), units = "lines"),
+                      plot.title = element_text(vjust = 3))  +
+                # annotation
+                labs(x = NULL, y = NULL,
+                     title = "Unemployement during the COVID-19 pandemic",
+                     subtitle = "Unemploymement rate UK population, 2019/2021",
+                     caption = "Source: UK Labour Force Survey (Person)") +
+                annotate(geom = "text", x = 2, y = 0.17, label = "2019", size = 3) +
+                annotate(geom = "text", x = 9.5, y = 0.17, label = "2020", size = 3) +
+                annotate(geom = "text", x = 16, y = 0.17, label = "2021", size = 3) 
+                
+           p
+        if(input$characteristic.em == "Ethnicity")
+           p <- lfs %>%
+                filter(AGE >= 18 & AGE <= 64 & ILODEFR == "In employment"  |
+                           ILODEFR == "Not employed"  & QUARTER <= 16) %>%
+                group_by(QUARTER, ILODEFR, ETHUKEUL, SEX) %>%
+                summarise(Active = sum(PWT18))  %>%
+                pivot_wider(names_from = 2, values_from = Active) %>%
+                adorn_totals("col") %>%
+                mutate(Rate = `Not employed` / Total) %>%
+                filter(!is.na(ETHUKEUL)) %>%
+                droplevels() %>%
+                ggplot(aes(x = QUARTER, y = Rate, group = SEX, color = SEX)) +
+                geom_vline(xintercept = 4, color = "#c9c9c9") + # grid line between 2019/2020
+                geom_vline(xintercept = 15, color = "#c9c9c9") + # grid line between 2020/2021
+                geom_line(size = 1, show.legend = FALSE) +
+                geom_point() +
+                #scales
+                scale_colour_manual("", values = c("#DF9216", "#791F83")) +
+                scale_y_continuous("%", breaks = seq(0,0.2, 0.02), limits = c(0,0.18), labels =
+                                       scales::percent_format(accuracy = 1L)) +
+                scale_x_continuous(breaks = c(1:16),
+                                   limits = c(input$quarter[1], input$quarter[2]),
+                                   labels = c("Jan-\nMar","","Jul-\nSep","",
+                                              "Jan-\nMar", "", "Mar-\nMay", "", "May-\nJul",
+                                              "", "Jul-\nSep","", "Sep-\nNov", "",
+                                              "Nov-\nJan", "")) +
+                # theme
+                theme_economist_white(gray_bg = FALSE) +
+                theme(plot.margin = unit(c(1,3,1,1), units = "lines"),
+                      plot.title = element_text(vjust = 3))  +
+                # annotation
+                labs(x = NULL, y = NULL,
+                     title = "Unemployement during the COVID-19 pandemic",
+                     subtitle = "Unemploymement rate UK population, 2019/2021",
+                     caption = "Source: UK Labour Force Survey (Person)") +
+                annotate(geom = "text", x = 2, y = 0.17, label = "2019", size = 3) +
+                annotate(geom = "text", x = 9.5, y = 0.17, label = "2020", size = 3) +
+                annotate(geom = "text", x = 16, y = 0.17, label = "2021", size = 3) +
+                # faceting
+                facet_wrap(~ETHUKEUL, ncol = 3)
+           p
+           
+            },
+        height = 600)
+        # Non-standard work
+        ## Part-time  
+        output$parttime <- renderPlot({
+        g <- d_precariety %>% # table summary
+                filter(!is.na(FTPTWK) & NSECMJ10_2 <= "Never worked, unemployed, and nec") %>% # # omit no answers and no apply
+                group_by(QUARTER, SEX, FTPTWK) %>%
+                summarise(count = sum(PWT18)) %>%
+                group_by(QUARTER, SEX) %>%
+                # percentage part-time per quarter
+                mutate(percentage = count/sum(count)) %>%
+                filter(FTPTWK == 2) %>%
+            ggplot(aes(x = QUARTER, y = percentage, colour = SEX)) + # line graph
+            geom_vline(xintercept = 4, color = "#c9c9c9") + # gridline between 2019/2020
+            geom_vline(xintercept = 15, color = "#c9c9c9") + # gridline between 2020/2021
+            geom_line(size = 1, show.legend = FALSE) +
+            geom_point(shape = 19) +
+            geom_vline(xintercept = 7, linetype="dotted") +
+
+            # scale and colour
+            scale_colour_manual("", values = c("#DF9216", "#791F83")) +
+            scale_y_continuous(breaks = seq(0,0.7, 0.1), limits = c(0, 0.75), labels =
+                                   scales::percent_format(accuracy = 1)) +
+            scale_x_continuous(breaks=c(1:18),
+                               labels=c("Jan-\nMar","Apr-\nJun","Jul-\nSep","Oct-\nDec",
+                                        "Jan-\nMar", "Feb-\nApr", "Mar-\nMay", "Apr-\nJun", "May-\nJul",
+                                        "Jun-\nAug", "Jul-\nSep","Aug-\nOct", "Sep-\nNov", "Oct-\nDec",
+                                        "Nov-\nJan", "Dec-\nFeb", "Jan-\nMar", "Feb-\nApr")) +
+            # annotation
+            labs(x = "",
+                 y = "",
+                 title ="Part-time work during the COVID-19 pandemic",
+                 subtitle  = "Percentage of workers in a part-time job",
+                 caption = c("Source: UK Labour Force Survey (Person)")) +
+            annotate(geom = "text", x = 2, y = 0.74, label = "2019", size = 3.5) +
+            annotate(geom = "text", x = 9.5, y = 0.74, label = "2020", size = 3.5) +
+            annotate(geom = "text", x = 17, y = 0.74, label = "2021", size = 3.5) +
+
+            # theme
+            theme_economist_white(gray_bg = FALSE) +
+            theme(plot.margin = unit(c(1, 5, 1, 1), "lines"),
+                  plot.title = element_text(margin = ggplot2::margin(10, 0, 10, 0)),
+                  axis.title.x = element_text(margin = ggplot2::margin(t = 5),
+                                              vjust = 0, size = 9),
+                  axis.title.y = element_text(margin = ggplot2::margin(r = 3),
+                                              vjust = 2, size = 10),
+                  axis.text.x = element_text(size = 8),
+                  axis.text.y = element_text(size = 9),
+                  legend.position = "top",
+                  legend.title = element_blank(),
+                  legend.text = element_text(size = 11),
+                  strip.text = element_text(face = "bold", hjust = 0, size = 12))  # change the face_wrap title
+        g
+        if(input$characteristic.nsw == "Ethnicity")
+        g <- d_precariety %>% # table summary
+            filter(!is.na(FTPTWK) & NSECMJ10_2 <= "Never worked, unemployed, and nec") %>% # # omit no answers and no apply
+            filter(!NSECMJ10_2 == "Small employers & own account") %>%
+            group_by(QUARTER, SEX, ETHUKEUL_2, FTPTWK) %>%
+            summarise(count = sum(PWT18)) %>%
+            group_by(QUARTER, SEX, ETHUKEUL_2) %>%
+            # percentage part-time per quarter
+            mutate(percentage = count/sum(count)) %>%
+            filter(FTPTWK == 2 & !is.na(ETHUKEUL_2)) %>%
+            ggplot(aes(x = QUARTER, y = percentage, colour = SEX)) + # line graph
+            geom_vline(xintercept = 4, color = "#c9c9c9") + # gridline between 2019/2020
+            geom_vline(xintercept = 15, color = "#c9c9c9") + # gridline between 2020/2021
+            geom_line(size = 1, show.legend = FALSE) +
+            geom_point(shape = 19) +
+            geom_vline(xintercept = 7, linetype="dotted") +
+            facet_wrap(~ETHUKEUL_2, ncol =2) +
+
+            # scale and colour
+            scale_colour_manual("", values = c("#DF9216", "#791F83")) +
+            scale_y_continuous(breaks = seq(0,0.7, 0.1), limits = c(0, 0.75), labels =
+                                   scales::percent_format(accuracy = 1)) +
+            scale_x_continuous(breaks=c(1:18),
+                               labels=c("Jan-\nMar","","Jul-\nSep","",
+                                        "Jan-\nMar", "", "Mar-\nMay", "", "May-\nJul",
+                                        "", "Jul-\nSep","", "Sep-\nNov", "",
+                                        "Nov-\nJan", "", "Jan-\nMar", "")) +
+            # annotation
+            labs(x = "",
+                 y = "",
+                 title ="Part-time work during the COVID-19 pandemic",
+                 subtitle  = "Percentage of workers in a part-time job",
+                 caption = c("Source: UK Labour Force Survey (Person)")) +
+            annotate(geom = "text", x = 2, y = 0.74, label = "2019", size = 3.5) +
+            annotate(geom = "text", x = 9.5, y = 0.74, label = "2020", size = 3.5) +
+            annotate(geom = "text", x = 17, y = 0.74, label = "2021", size = 3.5) +
+
+            # theme
+            theme_economist_white(gray_bg = FALSE) +
+            theme(plot.margin = unit(c(1, 5, 1, 1), "lines"),
+                  plot.title = element_text(margin = ggplot2::margin(10, 0, 10, 0)),
+                  axis.title.x = element_text(margin = ggplot2::margin(t = 5),
+                                              vjust = 0, size = 9),
+                  axis.title.y = element_text(margin = ggplot2::margin(r = 3),
+                                              vjust = 2, size = 10),
+                  axis.text.x = element_text(size = 8),
+                  axis.text.y = element_text(size = 9),
+                  legend.position = "top",
+                  legend.title = element_blank(),
+                  legend.text = element_text(size = 11),
+                  strip.text = element_text(face = "bold", hjust = 0, size = 12))  # change the face_wrap title
+        g
+        if(input$characteristic.nsw == "Occupation")
+        g <- d_precariety %>% # table summary
+            filter(!is.na(FTPTWK)) %>% 
+            filter(!NSECMJ10_2 == "Never worked, unemployed, and nec") %>% # # omit no answers and no apply
+            filter(!NSECMJ10_2 == "Small employers & own account") %>%
+            group_by(QUARTER, SEX, NSECMJ10_2, FTPTWK) %>%
+            summarise(count = sum(PWT18)) %>%
+            group_by(QUARTER, SEX, NSECMJ10_2) %>%
+            # percentage part-time per quarter
+            mutate(percentage = count/sum(count)) %>%
+            filter(FTPTWK == 2 & !is.na(NSECMJ10_2)) %>%
+            ggplot(aes(x = QUARTER, y = percentage, colour = SEX)) + # line graph
+            geom_vline(xintercept = 4, color = "#c9c9c9") + # gridline between 2019/2020
+            geom_vline(xintercept = 15, color = "#c9c9c9") + # gridline between 2020/2021
+            geom_line(size = 1, show.legend = FALSE) +
+            geom_point(shape = 19) +
+            geom_vline(xintercept = 7, linetype="dotted") +
+            facet_wrap(~NSECMJ10_2, ncol = 4) +
+            
+            # scale and colour
+            scale_colour_manual("", values = c("#DF9216", "#791F83")) +
+            scale_y_continuous(breaks = seq(0,0.7, 0.1), limits = c(0, 0.75), labels =
+                                   scales::percent_format(accuracy = 1)) +
+            scale_x_continuous(breaks=c(1:18),
+                               labels=c("Jan-\nMar","","Jul-\nSep","",
+                                        "Jan-\nMar", "", "Mar-\nMay", "", "May-\nJul",
+                                        "", "Jul-\nSep","", "Sep-\nNov", "",
+                                        "Nov-\nJan", "", "Jan-\nMar", "")) +
+            # annotation
+            labs(x = "",
+                 y = "",
+                 title ="Part-time work during the COVID-19 pandemic",
+                 subtitle  = "Percentage of workers in a part-time job",
+                 caption = c("Source: UK Labour Force Survey (Person)")) +
+            annotate(geom = "text", x = 2, y = 0.74, label = "2019", size = 3.5) +
+            annotate(geom = "text", x = 9.5, y = 0.74, label = "2020", size = 3.5) +
+            annotate(geom = "text", x = 17, y = 0.74, label = "2021", size = 3.5) +
+            
+            # theme
+            theme_economist_white(gray_bg = FALSE) +
+            theme(plot.margin = unit(c(1, 5, 1, 1), "lines"),
+                  plot.title = element_text(margin = ggplot2::margin(10, 0, 10, 0)),
+                  axis.title.x = element_text(margin = ggplot2::margin(t = 5),
+                                              vjust = 0, size = 9),
+                  axis.title.y = element_text(margin = ggplot2::margin(r = 3),
+                                              vjust = 2, size = 10),
+                  axis.text.x = element_text(size = 8),
+                  axis.text.y = element_text(size = 9),
+                  legend.position = "top",
+                  legend.title = element_blank(),
+                  legend.text = element_text(size = 11),
+                  strip.text = element_text(face = "bold", hjust = 0, size = 12))  # change the face_wrap title
+        g
+        if(input$characteristic.nsw == "Ethnicity & Occupation")
+        g <- d_precariety %>% # table summary
+            filter(!is.na(FTPTWK)) %>% 
+            filter(!NSECMJ10_2 == "Never worked, unemployed, and nec") %>% # # omit no answers and no apply
+            filter(!NSECMJ10_2 == "Small employers & own account") %>%
+            group_by(QUARTER, SEX, ETHUKEUL_2, NSECMJ10_2, FTPTWK) %>%
+            summarise(count = sum(PWT18)) %>%
+            group_by(QUARTER, SEX, ETHUKEUL_2, NSECMJ10_2) %>%
+            # percentage part-time per quarter
+            mutate(percentage = count/sum(count)) %>%
+            filter(FTPTWK == 2 & !is.na(ETHUKEUL_2)) %>%
+            ggplot(aes(x = QUARTER, y = percentage, colour = SEX)) + # line graph
+            geom_vline(xintercept = 4, color = "#c9c9c9") + # gridline between 2019/2020
+            geom_vline(xintercept = 15, color = "#c9c9c9") + # gridline between 2020/2021
+            geom_line(size = 1, show.legend = FALSE) +
+            geom_point(shape = 19) +
+            geom_vline(xintercept = 7, linetype="dotted") +
+            facet_wrap(ETHUKEUL_2~NSECMJ10_2, ncol = 4 ) +
+            
+            # scale and colour
+            scale_colour_manual("", values = c("#DF9216", "#791F83")) +
+            scale_y_continuous(breaks = seq(0,0.7, 0.1), limits = c(0, 0.75), labels =
+                                   scales::percent_format(accuracy = 1)) +
+            scale_x_continuous(breaks=c(1:18),
+                                   labels=c("Jan-\nMar","","Jul-\nSep","",
+                                            "Jan-\nMar", "", "Mar-\nMay", "", "May-\nJul",
+                                            "", "Jul-\nSep","", "Sep-\nNov", "",
+                                            "Nov-\nJan", "", "Jan-\nMar", "")) +
+            # annotation
+            labs(x = "",
+                 y = "",
+                 title ="Part-time work during the COVID-19 pandemic",
+                 subtitle  = "Percentage of workers in a part-time job",
+                 caption = c("Source: UK Labour Force Survey (Person)")) +
+            annotate(geom = "text", x = 2, y = 0.74, label = "2019", size = 3.5) +
+            annotate(geom = "text", x = 9.5, y = 0.74, label = "2020", size = 3.5) +
+            annotate(geom = "text", x = 17, y = 0.74, label = "2021", size = 3.5) +
+            
+            # theme
+            theme_economist_white(gray_bg = FALSE) +
+            theme(plot.margin = unit(c(1, 5, 1, 1), "lines"),
+                  plot.title = element_text(margin = ggplot2::margin(10, 0, 10, 0)),
+                  axis.title.x = element_text(margin = ggplot2::margin(t = 5),
+                                              vjust = 0, size = 9),
+                  axis.title.y = element_text(margin = ggplot2::margin(r = 3),
+                                              vjust = 2, size = 10),
+                  axis.text.x = element_text(size = 8),
+                  axis.text.y = element_text(size = 9),
+                  legend.position = "top",
+                  legend.title = element_blank(),
+                  legend.text = element_text(size = 11),
+                  strip.text = element_text(face = "bold", hjust = 0, size = 12))  # change the face_wrap title
+        g
+        
+        },
+        height = 600)
+        ## Temporary work
+        output$why_permanent <- renderPlot({
+        k <- d_precariety %>% # table summary
+            # only temp
+            filter(JOBTYP == 2) %>% # only those in par-time work
+            group_by(QUARTER, SEX, WHYTMP6) %>% 
+            summarise(count = sum(PWT18)) %>% 
+            group_by(QUARTER, SEX) %>% 
+            # percentage reason
+            mutate(percentage = count/sum(count)) %>% 
+            filter(WHYTMP6 %in% c("3", "4")) %>% 
+            ggplot(aes(x = QUARTER, y = percentage, colour = as_label(SEX))) + # line graph
+            geom_vline(xintercept = 4, color = "#c9c9c9") + # gridline between 2019/2020
+            geom_vline(xintercept = 15, color = "#c9c9c9") + # gridline between 2020/2021
+            geom_line(size = 1, show.legend = FALSE) +
+            geom_point(shape = 19) +
+            geom_vline(xintercept = 7, linetype="dotted") +
+            facet_wrap(.~as_label(WHYTMP6)) + 
+            
+            # scale and colour
+            scale_colour_manual(values = c("#DF9216", "#791F83")) +
+            scale_y_continuous(breaks = seq(0,0.4, 0.05), limits = c(0, 0.45), labels =
+                                   scales::percent_format(accuracy = 1)) +
+            scale_x_continuous(breaks=c(1:18),
+                               labels=c("Jan-\nMar","","Jul-\nSep","",
+                                        "Jan-\nMar", "", "Mar-\nMay", "", "May-\nJul",
+                                        "", "Jul-\nSep","", "Sep-\nNov", "",
+                                        "Nov-\nJan", "", "Jan-\nMar", ""))  +
+            # annotation
+            labs(x = "", 
+                 y = "",
+                 title ="Reasons for having temporary work",
+                 subtitle  = "Percentage of the respondents with tempory work",
+                 caption = c("Source: UK Labour Force Survey (Person)")) +
+            annotate(geom = "text", x = 2, y = 0.42, label = "2019", size = 3.5) +
+            annotate(geom = "text", x = 9.5, y = 0.42, label = "2020", size = 3.5) +
+            annotate(geom = "text", x = 17, y = 0.42, label = "2021", size = 3.5) +
+            
+            # theme
+            theme_economist_white(gray_bg = FALSE) +
+            theme(plot.margin = unit(c(1, 5, 1, 1), "lines"),
+                  plot.title = element_text(margin = ggplot2::margin(10, 0, 10, 0)),
+                  axis.title.x = element_text(margin = ggplot2::margin(t = 5),
+                                              vjust = 0, size = 9),
+                  axis.title.y = element_text(margin = ggplot2::margin(r = 3),
+                                              vjust = 2, size = 10),
+                  axis.text.x = element_text(size = 7),
+                  axis.text.y = element_text(size = 9),
+                  legend.position = "top",
+                  legend.title = element_blank(),
+                  legend.text = element_text(size = 12),
+                  strip.text = element_text(face = "bold", hjust = 0, size = 12)) + # change the face_wrap title
+            guides(color = guide_legend(override.aes = list(size = 4))) # change the legend box size
+        k})
+        ## flextime
+        output$flex <- renderPlot({
+
+        l <- d_precariety %>% # table summary 
+                filter(QUARTER %in% c(2, 4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18)) %>% 
+                group_by(QUARTER, FLED10, SEX) %>% 
+                summarise(count = sum(PWT18)) %>% 
+                group_by(QUARTER, SEX) %>% 
+                # percentage reason
+                mutate(percentage = count/sum(count)) %>% 
+                filter(!is.na(FLED10) & FLED10 %in% c("Flexitime", "Annualised hours", 
+                                                      "Zero hours contract", "On-Call Working")) %>%  # omit NAs and include only certain categories
+            ggplot(aes(x = QUARTER, y = percentage, colour = FLED10)) + # line graph
+                geom_vline(xintercept = 4, color = "#c9c9c9") + # gridline between 2019/2020
+                geom_vline(xintercept = 15, color = "#c9c9c9") + # gridline between 2020/2021
+                geom_line(size = 1, show.legend = FALSE) +
+                geom_point(shape = 19) +
+                geom_vline(xintercept = 7, linetype = "dotted") +
+                facet_wrap(.~SEX) +
+                
+                # scale and colour
+                scale_color_manual("", values = c("#FC8DB7","#006295","#A3BE41","#791F83"))+
+                scale_y_continuous(breaks = seq(0,0.2, 0.02), limits = c(0, 0.22), labels =
+                                       scales::percent_format(accuracy = 1)) +
+                scale_x_continuous(breaks=c(1:18),
+                               labels=c("Jan-\nMar","","Jul-\nSep","",
+                                        "Jan-\nMar", "", "Mar-\nMay", "", "May-\nJul",
+                                        "", "Jul-\nSep","", "Sep-\nNov", "",
+                                        "Nov-\nJan", "", "Jan-\nMar", "")) +
+                # annotation
+                labs(x = "", 
+                     y = "",
+                     title = "Flexitime during the COVID-19 pandemic",
+                     subtitle  = "?",
+                     caption = c("Source: UK Labour Force Survey (Person)")) +
+                annotate(geom = "text", x = 2, y = 0.21, label = "2019", size = 3.5) +
+                annotate(geom = "text", x = 9.5, y = 0.21, label = "2020", size = 3.5) +
+                annotate(geom = "text", x = 17, y = 0.21, label = "2021", size = 3.5) +
+                
+                # theme
+                theme_economist_white(gray_bg = FALSE) +
+                theme(plot.margin = unit(c(1, 5, 1, 1), "lines"),
+                      plot.title = element_text(margin = ggplot2::margin(10, 0, 10, 0)),
+                      axis.title.x = element_text(margin = ggplot2::margin(t = 5),
+                                                  vjust = 0, size = 9),
+                      axis.title.y = element_text(margin = ggplot2::margin(r = 3),
+                                                  vjust = 2, size = 10),
+                      axis.text.x = element_text(size = 7),
+                      axis.text.y = element_text(size = 9),
+                      legend.position = "top",
+                      legend.title = element_blank(),
+                      legend.text = element_text(size = 11),
+                      strip.text = element_text(face = "bold", hjust = 0, size = 12)) + # change the face_wrap title
+                guides(color = guide_legend(nrow = 1, byrow = TRUE, override.aes = list(size = 4))) # change the legend box size
+        l
+        if(input$characteristic.flex == "Ethnicity")
+        l <- d_precariety %>% # table summary 
+            filter(QUARTER %in% c(2, 4, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18)) %>% 
+            group_by(QUARTER, FLED10, ETHUKEUL_2) %>% 
+            summarise(count = sum(PWT18)) %>% 
+            group_by(QUARTER, ETHUKEUL_2) %>% 
+            # percentage reason
+            mutate(percentage = count/sum(count)) %>% 
+            filter(!is.na(FLED10) & FLED10 %in% c("Flexitime", "Annualised hours", "Zero hours contract", "On-Call Working")) %>%  # omit NAs and include only certain categories
+            filter(!is.na(ETHUKEUL_2)) %>% 
+            ggplot(aes(x = QUARTER, y = percentage, colour = FLED10)) + # line graph
+            geom_vline(xintercept = 4, color = "#c9c9c9") + # gridline between 2019/2020
+            geom_vline(xintercept = 15, color = "#c9c9c9") + # gridline between 2020/2021
+            geom_line(size = 1, show.legend = FALSE) +
+            geom_point(shape = 19) +
+            geom_vline(xintercept = 7, linetype = "dotted") +
+            facet_wrap(.~ETHUKEUL_2) +
+            
+            # scale and colour
+            scale_color_manual("", values = c("#FC8DB7","#006295","#A3BE41","#791F83")) +
+            scale_y_continuous(breaks = seq(0,0.2, 0.02), limits = c(0, 0.22), labels =
+                                   scales::percent_format(accuracy = 1)) +
+            scale_x_continuous(breaks=c(1:18),
+                               labels=c("Jan-\nMar","","Jul-\nSep","",
+                                        "Jan-\nMar", "", "Mar-\nMay", "", "May-\nJul",
+                                        "", "Jul-\nSep","", "Sep-\nNov", "",
+                                        "Nov-\nJan", "", "Jan-\nMar", "")) +
+            # annotation
+            labs(x = "", 
+                 y = "",
+                 title = "Atypical work arrangements during the COVID-19 pandemic",
+                 subtitle  = "?",
+                 caption = c("Source: UK Labour Force Survey (Person)")) +
+            annotate(geom = "text", x = 2, y = 0.21, label = "2019", size = 3.5) +
+            annotate(geom = "text", x = 9.5, y = 0.21, label = "2020", size = 3.5) +
+            annotate(geom = "text", x = 17, y = 0.21, label = "2021", size = 3.5) +
+            
+            # theme
+            theme_economist_white(gray_bg = FALSE) +
+            theme(plot.margin = unit(c(1, 5, 1, 1), "lines"),
+                  plot.title = element_text(margin = ggplot2::margin(10, 0, 10, 0)),
+                  axis.title.x = element_text(margin = ggplot2::margin(t = 5),
+                                              vjust = 0, size = 9),
+                  axis.title.y = element_text(margin = ggplot2::margin(r = 3),
+                                              vjust = 2, size = 10),
+                  axis.text.x = element_text(size = 7),
+                  axis.text.y = element_text(size = 9),
+                  legend.position = "top",
+                  legend.title = element_blank(),
+                  legend.text = element_text(size = 11),
+                  strip.text = element_text(face = "bold", hjust = 0, size = 12)) + # change the face_wrap title
+            guides(color = guide_legend(nrow = 1, byrow = TRUE, override.aes = list(size = 4))) # change the legend box size
+        l
+        })
         # home-working
         output$linegraph <- renderPlot({homwrk %>% 
                 filter(Characteristic == input$characteristic) %>% 
@@ -127,7 +663,7 @@ server <- function(input, output) {
                            ymin = LCL, ymax = UCL, fill = Category, color = Category)) +
                 geom_line(size = 1, show.legend = FALSE) +
                 geom_point() +
-                scale_color_manual("", values = c(sexcolour,agecolor)) + 
+                scale_color_manual("", values = c(sexcolour, agecolor)) + 
                 scale_fill_manual("", values = c(sexcolour, agecolor)) +
                 # scale and colour
                 scale_y_continuous("%") +
@@ -139,8 +675,9 @@ server <- function(input, output) {
                 # annotation 
                 labs(x = NULL, y = NULL,
                      title = "Homeworking during the COVID-19 pandemic",
-                     subtitle = "Percentage of people working from home",
-                     caption = "Source: Office for National Statistics - Opinions and Lifestyle survey") +
+                     subtitle = "Percentage of UK working population working from home*",
+                     caption = "Source: Office for National Statistics - Opinions and Lifestyle survey\n
+                            *A person is said to be working if last week: they had a paid job, either as an employee or self-employed;\nor they did any casual work for payment; or they did any unpaid or voluntary work.") +
                 if (input$confidence) 
                     geom_ribbon(alpha = 0.5) 
             
@@ -174,9 +711,12 @@ server <- function(input, output) {
                 # annotation 
                 labs(x = NULL, y = NULL,
                      title = "Reasons for working from home",
-                     caption = "Source: Office for National Statistics - Opinions and Lifestyle survey") +
+                     subtitle = "Percentage of UK working population working from home*",
+                     caption = "Source: Office for National Statistics - Opinions and Lifestyle survey/n
+                     *Respondents were able to choose more than one option") +
                 facet_wrap(~Category, ncol = 3)
-        })
+        },
+        height = 500)
         # Mental health
         output$dotplot <-  renderPlot({wellbeing %>% 
                 filter(Characteristic == input$characteristic.mh) %>% 
@@ -193,14 +733,17 @@ server <- function(input, output) {
                 # annotation
                 labs(x = NULL, y = NULL,
                      title ="Mental health during the pandemic",
-                     caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) +
+                     subtitle = "Percentage of the respondents*",
+                     caption = "Source: Office for National Statistics - Opinions and Lifestyle survey\n
+                     *Respondents were able to choose more than one option") +
                 #theme
                 theme_economist_white(gray_bg = FALSE) +
                 theme(legend.position = c("top"),
                       plot.margin = unit(c(1,3,1,1), units = "lines"),
                       plot.title = element_text(vjust = 3))
         },
-        height = 800)
+        height = 800,
+        width = 700)
         
         # Social-distancing at work
         output$dotplot2 <- renderPlot({contact_work  %>% 
@@ -218,16 +761,17 @@ server <- function(input, output) {
                 # annotation
                 labs(x = NULL, y = NULL,
                      title ="Social-distancing at work",
+                     subtitle = "Percentage of people who had to travel and from work",
                      caption = c("Source: Office for National Statistics - Opinions and Lifestyle survey")) +
                 #theme
                 theme_economist_white(gray_bg = FALSE) +
                 theme(legend.position = c("top"),
                       plot.margin = unit(c(1,3,1,1),units = "lines"),
                       plot.title = element_text(vjust = 3)) 
-        })
-        # More tab
-        output$about <- renderText({ input$txt })
-        output$contact <- renderText({ input$txt })
+        },
+        height = 500,
+        width = 700
+        )
 }
 
 # Run the application 
